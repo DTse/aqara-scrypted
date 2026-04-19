@@ -1,0 +1,49 @@
+{
+    "name": "aqara-scrypted",
+    "version": "0.1.0",
+    "description": "Scrypted plugin for Aqara cameras (G410 and compatible models) via local RTSP",
+    "scripts": {
+        "scrypted-setup-project": "scrypted-setup-project",
+        "prescrypted-setup-project": "scrypted-package-json",
+        "build": "scrypted-webpack",
+        "build:watch": "scrypted-webpack --watch",
+        "prepublishOnly": "NODE_ENV=production scrypted-webpack",
+        "prescrypted-vscode-launch": "scrypted-webpack",
+        "scrypted-vscode-launch": "scrypted-deploy-debug",
+        "scrypted-deploy-debug": "scrypted-deploy-debug",
+        "scrypted-debug": "scrypted-debug",
+        "scrypted-deploy": "scrypted-deploy",
+        "scrypted-readme": "scrypted-readme",
+        "scrypted-package-json": "scrypted-package-json",
+        "clean": "rm -rf dist out .scrypted .tsbuildinfo tsconfig.tsbuildinfo",
+        "typecheck": "tsc --noEmit --skipLibCheck",
+        "dev": "scrypted-webpack --watch"
+    },
+    "keywords": [
+        "scrypted",
+        "aqara",
+        "g410",
+        "camera",
+        "doorbell",
+        "rtsp",
+        "home-automation"
+    ],
+    "license": "MIT",
+    "scrypted": {
+        "rollup": false,
+        "name": "Aqara Plugin",
+        "type": "DeviceProvider",
+        "interfaces": [
+            "DeviceProvider",
+            "DeviceCreator",
+            "Settings"
+        ]
+    },
+    "dependencies": {
+        "@scrypted/sdk": "latest"
+    },
+    "devDependencies": {
+        "@types/node": "^20.11.0",
+        "typescript": "^5.4.0"
+    }
+}

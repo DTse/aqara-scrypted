@@ -1,0 +1,10 @@
+.DS_Store
+node_modules/
+out/
+dist/
+.scrypted/
+*.tsbuildinfo
+.eslintcache
+.env
+.env.local
+.vscode
