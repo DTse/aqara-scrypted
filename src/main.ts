@@ -1,3 +1,1 @@
-import { AqaraProvider } from "./provider";
-
-export default AqaraProvider;
+export { AqaraProvider as default } from './provider';
