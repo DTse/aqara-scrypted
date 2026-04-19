@@ -1,11 +1,10 @@
 import sdk, {
   FFmpegInput,
   MediaObject,
-  MotionSensor,
-  BinarySensor,
   RequestMediaStreamOptions,
   ResponseMediaStreamOptions,
   ScryptedDeviceBase,
+  ScryptedInterface,
   ScryptedMimeTypes,
   Setting,
   SettingValue,
@@ -25,20 +24,19 @@ interface ChannelDescriptor {
 }
 
 /**
- * Aqara G410 advertises three RTSP channels:
- *   ch1 = 2K (2304x1728)
- *   ch2 = 1080p
- *   ch3 = 640x480 (substream)
+ * Aqara G410 exposes three RTSP channels on port 8554.
+ * Dimensions observed from one G410 unit; actual dimensions come from the
+ * RTSP probe so these are informational only.
  */
 const CHANNELS: Record<ChannelId, ChannelDescriptor> = {
-  ch1: { id: "ch1", name: "Main (2K)", width: 2304, height: 1728 },
-  ch2: { id: "ch2", name: "Medium (1080p)", width: 1920, height: 1080 },
-  ch3: { id: "ch3", name: "Sub (480p)", width: 640, height: 480 },
+  ch1: { id: "ch1", name: "Main (1600x1200)", width: 1600, height: 1200 },
+  ch2: { id: "ch2", name: "Medium (1280x720)", width: 1280, height: 720 },
+  ch3: { id: "ch3", name: "Sub (640x480)", width: 640, height: 480 },
 };
 
 export class AqaraCamera
   extends ScryptedDeviceBase
-  implements VideoCamera, MotionSensor, BinarySensor, Settings
+  implements VideoCamera, Settings
 {
   constructor(nativeId: string) {
     super(nativeId);
@@ -46,15 +44,16 @@ export class AqaraCamera
   }
 
   release(): void {
-    // no persistent resources yet; placeholder for Phase 2 (event listeners)
+    // no persistent resources
   }
 
   // ---------- Settings ----------
 
   async getSettings(): Promise<Setting[]> {
-    const channelChoices = Object.values(CHANNELS).map(
-      (c) => `${c.id} — ${c.name}`,
-    );
+    const channelChoices = Object.keys(CHANNELS);
+    const channelSummary = Object.values(CHANNELS)
+      .map((c) => `${c.id} = ${c.name}`)
+      .join(", ");
 
     return [
       {
@@ -66,7 +65,7 @@ export class AqaraCamera
         key: "rtspPort",
         title: "RTSP Port",
         value: this.storage.getItem("rtspPort") || "8554",
-        description: "Default is 8554. Rarely needs to change.",
+        description: "Default is 8554.",
       },
       {
         key: "username",
@@ -82,42 +81,31 @@ export class AqaraCamera
       {
         key: "mainChannel",
         title: "Main Stream Channel",
-        description:
-          "Used for full-quality recording (HKSV/NVR) and large-tile viewing.",
-        value: this.storage.getItem("mainChannel") || "ch1",
+        description: `Used for full-quality recording (HKSV/NVR). ${channelSummary}.`,
+        value: this.resolveChannelId("mainChannel", "ch1"),
         choices: channelChoices,
       },
       {
         key: "subChannel",
         title: "Substream Channel",
-        description: "Low-bitrate stream used for thumbnails and small tiles.",
-        value: this.storage.getItem("subChannel") || "ch3",
+        description: `Low-bitrate stream for thumbnails. ${channelSummary}.`,
+        value: this.resolveChannelId("subChannel", "ch3"),
         choices: channelChoices,
-      },
-      {
-        key: "isDoorbell",
-        title: "Is a Doorbell",
-        type: "boolean",
-        value: this.storage.getItem("isDoorbell") === "true",
-        readonly: true,
-        description:
-          "Set when this device was added. Recreate the device to change.",
       },
     ];
   }
 
   async putSetting(key: string, value: SettingValue): Promise<void> {
-    // Channel choice strings come back as "ch1 — Main (2K)" — extract the id.
     if (key === "mainChannel" || key === "subChannel") {
-      const raw = String(value);
-      const id = raw.split(/\s|—/)[0].trim();
+      const id = String(value).trim() as ChannelId;
       if (!(id in CHANNELS)) {
-        throw new Error(`Unknown channel: ${raw}`);
+        throw new Error(`Unknown channel: ${value}`);
       }
       this.storage.setItem(key, id);
-      return;
+    } else {
+      this.storage.setItem(key, value === undefined ? "" : String(value));
     }
-    this.storage.setItem(key, value === undefined ? "" : String(value));
+    this.onDeviceEvent(ScryptedInterface.Settings, undefined);
   }
 
   // ---------- VideoCamera ----------
@@ -126,10 +114,7 @@ export class AqaraCamera
     const mainId = this.resolveChannelId("mainChannel", "ch1");
     const subId = this.resolveChannelId("subChannel", "ch3");
 
-    const toOption = (
-      id: ChannelId,
-      overrides: Partial<ResponseMediaStreamOptions>,
-    ): ResponseMediaStreamOptions => {
+    const toOption = (id: ChannelId): ResponseMediaStreamOptions => {
       const c = CHANNELS[id];
       return {
         id,
@@ -140,13 +125,12 @@ export class AqaraCamera
         source: "local",
         tool: "scrypted",
         userConfigurable: false,
-        ...overrides,
       };
     };
 
-    const options: ResponseMediaStreamOptions[] = [toOption(mainId, {})];
+    const options: ResponseMediaStreamOptions[] = [toOption(mainId)];
     if (subId !== mainId) {
-      options.push(toOption(subId, {}));
+      options.push(toOption(subId));
     }
     return options;
   }
@@ -165,12 +149,7 @@ export class AqaraCamera
     const ffmpegInput: FFmpegInput = {
       url,
       container: "rtsp",
-      inputArguments: [
-        "-rtsp_transport",
-        "tcp",
-        "-i",
-        url,
-      ],
+      inputArguments: ["-rtsp_transport", "tcp", "-i", url],
       mediaStreamOptions: {
         id: channelId,
         name: channel.name,
@@ -190,24 +169,6 @@ export class AqaraCamera
       Buffer.from(JSON.stringify(ffmpegInput)),
       ScryptedMimeTypes.FFmpegInput,
     );
-  }
-
-  // ---------- Helpers for Phase 2 event wiring ----------
-
-  /** Called by the Phase 2 event listener when a motion start event arrives. */
-  triggerMotion(durationMs = 15_000): void {
-    this.motionDetected = true;
-    setTimeout(() => {
-      this.motionDetected = false;
-    }, durationMs);
-  }
-
-  /** Called by the Phase 2 event listener on a doorbell press. */
-  triggerDoorbell(durationMs = 10_000): void {
-    this.binaryState = true;
-    setTimeout(() => {
-      this.binaryState = false;
-    }, durationMs);
   }
 
   // ---------- Internal ----------

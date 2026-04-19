@@ -1,61 +1,57 @@
 # Aqara Scrypted Plugin
 
-A [Scrypted](https://scrypted.app) plugin for Aqara cameras (built and tested against the **Aqara G410** doorbell, should work with other Aqara models that expose RTSP LAN Preview).
+A [Scrypted](https://scrypted.app) plugin for Aqara cameras that expose **RTSP LAN Preview** (tested against the Aqara G410).
 
-## Status — Phase 1 (RTSP MVP)
+## Status
 
 | Feature | Status |
 |---|---|
 | Live video (main + substream) | ✅ |
-| Snapshots | ✅ (synthesized from stream) |
-| Motion events | ⏳ Phase 2 |
-| Doorbell press events | ⏳ Phase 2 |
-| Two-way audio | ⏳ Phase 3 |
-| Record-on-ring | ⏳ Phase 2 (needs doorbell events) |
+| Snapshots (synthesized from stream) | ✅ |
+| Motion events | Use Scrypted Object Detector (see below) |
+| Doorbell press events | ❌ Not implemented — Aqara broadcasts indistinguishable heartbeat packets on the multicast ring channel |
+| Two-way audio | ❌ Not implemented |
 
 ## Prerequisites
 
-1. Hardwired G410 (RTSP does not work on battery-only mode).
+1. The camera must be hardwired (RTSP does not work on battery-only models).
 2. In the **Aqara Home app**:
-   - Open the G410 → Settings → **RTSP LAN Preview** → enable.
+   - Open the camera → Settings → **RTSP LAN Preview** → enable.
    - Copy the generated **username** and **password**.
-   - Note the camera's LAN IP address (Settings → Network).
+   - Note the camera's LAN IP address.
 
 ## Install
 
 ```bash
-cd aqara-scrypted
 npm install
 npm run build
+npm run scrypted-deploy <your-scrypted-host>
 ```
 
-Then in Scrypted → Plugins → Install from file, point at `dist/plugin.zip`. Or run `npm run scrypted-deploy <host>` to push directly to a running Scrypted instance.
+Or upload `dist/plugin.zip` via Scrypted → Plugins → Install from file.
 
 ## Configure
 
 1. Scrypted UI → Plugins → **Aqara Plugin** → **Add Device**.
-2. Fill in:
-   - **Name**: e.g. "Front Door"
-   - **IP Address**: LAN IP of the camera
-   - **RTSP Username / Password**: from the Aqara Home app
-   - **Is a Doorbell**: leave on for G410
-3. The camera appears in Scrypted. Open it and confirm live view works.
+2. Fill in name, IP address, RTSP username, RTSP password.
+3. Open the new camera and confirm live view works.
 
 ## Channels
 
-Aqara exposes three RTSP substreams:
+The G410 exposes three RTSP channels on port 8554:
 
-| Channel | Resolution | Typical use |
-|---|---|---|
-| `ch1` | 2304×1728 (2K) | HKSV / NVR recording |
-| `ch2` | 1920×1080 | |
-| `ch3` | 640×480 | Thumbnails, small tiles |
+| Channel | Approx. resolution |
+|---|---|
+| `ch1` | Main (1600×1200 observed; varies by firmware) |
+| `ch2` | Medium |
+| `ch3` | Sub (low-bitrate, for thumbnails) |
 
-Set the main/substream channel in each camera's Settings.
+Set the main/substream channel in each camera's Settings tab. Scrypted probes the actual stream dimensions at connection time, so the numbers above are informational only.
 
-## Next phases
+## Motion detection
 
-- **Phase 2** — listen on UDP multicast `230.0.0.1:10008` (doorbell) and TCP `54324` (control channel events) to fire Motion/BinarySensor state changes. This enables record-on-ring in HKSV and Scrypted NVR.
-- **Phase 3** — implement the UDP RTP backchannel on port `54323` for 2-way audio (Scrypted `Intercom` interface).
+The Aqara LAN protocol does **not** expose motion events to third parties. Best options:
 
-Both phases are based on the reverse-engineered protocol documented by [absent42/aqara-doorbell](https://github.com/absent42/aqara-doorbell) for the G400 (G410's sister model); G410 protocol parity will be confirmed via packet capture before implementation.
+1. **Recommended:** install the [`@scrypted/objectdetector`](https://github.com/koush/scrypted/tree/main/plugins/objectdetector) plugin plus a detector (`@scrypted/tensorflow-lite`, or Scrypted NVR's detection if you have an NVR license). Gives you object-aware motion (person / car / animal) that Aqara's native PIR can't.
+2. Use Scrypted's built-in motion detection plugin for basic frame-diff motion.
+3. If the camera is already paired to Home Assistant via HomeKit Controller, HA exposes the native PIR motion sensor. Bridge that entity into Scrypted via the Home Assistant plugin.
