@@ -61,7 +61,8 @@ export class IntercomSession {
         private readonly cameraIp: string,
         private readonly logger: Console,
         private readonly ffmpegPath: string,
-        private readonly ffmpegInputArgs: string[]
+        private readonly ffmpegInputArgs: string[],
+        private readonly volumeGain = 1
     ) {
         this.sessionTs = BigInt(Date.now());
         // SSRC must be non-zero, 32-bit. Node's Math.random is fine here — this
@@ -263,6 +264,14 @@ export class IntercomSession {
     private spawnFfmpeg(): void {
         // Build ADTS-encoder args. The input description is provided by the
         // caller (they got it from Scrypted's mediaManager).
+        //
+        // When volumeGain > 1, run through acompressor to avoid clipping then
+        // apply the requested volume multiplier. acompressor params keep voice
+        // articulation intact at moderate boost levels (1.5-5.0).
+        const gain = Number.isFinite(this.volumeGain) && this.volumeGain > 0 ? this.volumeGain : 1;
+        const volumeFilter =
+            gain === 1 ? [] : ['-af', `acompressor=threshold=-20dB:ratio=4:attack=5:release=50:makeup=2,volume=${gain.toFixed(2)}`];
+
         const args = [
             '-hide_banner',
             '-loglevel',
@@ -272,6 +281,7 @@ export class IntercomSession {
             '-flags',
             'low_delay',
             ...this.ffmpegInputArgs,
+            ...volumeFilter,
             '-c:a',
             'aac',
             '-profile:a',

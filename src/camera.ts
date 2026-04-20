@@ -108,6 +108,14 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Int
                 title: 'Play Test Tone (3s)',
                 description:
                     "Runs the full intercom pipeline (TCP session + UDP RTP + ffmpeg AAC) by streaming a 3-second 440Hz sine wave to the camera's speaker. Listen to the camera — if you hear a beep, 2-way audio works."
+            },
+            {
+                type: 'number',
+                key: 'intercomVolume',
+                title: 'Intercom Volume',
+                value: this.storage.getItem('intercomVolume') || '2.5',
+                description:
+                    'Volume multiplier applied to outgoing talkback audio. 1.0 = original, 2.0 = ~2× louder, 3.0 = ~3× louder. Above ~5.0 you will get clipping/distortion. Changes apply to the next talkback session.'
             }
         ];
     }
@@ -238,8 +246,9 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Int
         this.console.log(`[intercom] media input args: ${JSON.stringify(inputArgs)}`);
 
         const ffmpegPath = await mediaManager.getFFmpegPath();
+        const gain = this.resolveIntercomVolume();
 
-        const session = new IntercomSession(host, this.console, ffmpegPath, inputArgs);
+        const session = new IntercomSession(host, this.console, ffmpegPath, inputArgs, gain);
         session.onClose(reason => {
             this.console.log(`[intercom] session closed: ${reason}`);
             if (this.intercomSession === session) {
@@ -257,8 +266,6 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Int
         }
     }
 
-    // ---------- Test tone (diagnostic) ----------
-
     async stopIntercom(): Promise<void> {
         const session = this.intercomSession;
         this.intercomSession = undefined;
@@ -267,7 +274,7 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Int
         }
     }
 
-    // ---------- Intercom (two-way audio) ----------
+    // ---------- Test tone (diagnostic) ----------
 
     private buildRtspUrl(channelId: ChannelId): string {
         const host = this.storage.getItem('host') || '';
@@ -280,6 +287,8 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Int
         const auth = user ? `${user}:${pass}@` : '';
         return `rtsp://${auth}${host}:${port}/${channelId}`;
     }
+
+    // ---------- Intercom (two-way audio) ----------
 
     private async playTestTone(): Promise<void> {
         const host = (this.storage.getItem('host') || '').trim();
@@ -316,8 +325,6 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Int
             await session.stop('tone-start-failed');
         }
     }
-
-    // ---------- Internal ----------
 
     /**
      * Open a raw TCP session to the camera and run the START/STOP_VOICE handshake
@@ -397,8 +404,21 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Int
         });
     }
 
+    // ---------- Internal ----------
+
     private resolveChannelId(key: string, fallback: ChannelId): ChannelId {
         const raw = (this.storage.getItem(key) || fallback) as ChannelId;
         return raw in CHANNELS ? raw : fallback;
+    }
+
+    private resolveIntercomVolume(): number {
+        const raw = this.storage.getItem('intercomVolume');
+        const parsed = raw ? Number.parseFloat(raw) : Number.NaN;
+
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+            return 1;
+        }
+
+        return parsed;
     }
 }
