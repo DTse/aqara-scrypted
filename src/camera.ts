@@ -199,6 +199,7 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Int
     // ---------- Intercom probe (diagnostic) ----------
 
     async startIntercom(media: MediaObject): Promise<void> {
+        this.console.log('[intercom] startIntercom called');
         const host = (this.storage.getItem('host') || '').trim();
         if (!host) {
             throw new Error('Camera host is not configured. Open settings and set the IP Address.');
@@ -210,9 +211,26 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Int
             this.intercomSession = undefined;
         }
 
-        // Scrypted gives us a MediaObject. Convert to FFmpegInput so we can feed
-        // the input arguments directly to ffmpeg for AAC-ADTS encoding.
-        const ffmpegInputRaw = await mediaManager.convertMediaObject<FFmpegInput>(media, ScryptedMimeTypes.FFmpegInput);
+        // Log what Scrypted handed us so we can see the input format.
+        try {
+            const { mimeType } = media as unknown as { mimeType?: string };
+            this.console.log(`[intercom] media mimeType=${mimeType ?? 'unknown'}`);
+        } catch {
+            // ignore
+        }
+
+        // Scrypted converts FFmpegInput media to a Buffer containing JSON;
+        // parse it back to the real object.
+        const rawBuf = await mediaManager.convertMediaObject<Buffer>(media, ScryptedMimeTypes.FFmpegInput);
+        let ffmpegInputRaw: FFmpegInput;
+        try {
+            ffmpegInputRaw = JSON.parse(Buffer.from(rawBuf).toString('utf8')) as FFmpegInput;
+        } catch (err) {
+            this.console.error('[intercom] could not parse FFmpegInput JSON:', err);
+            throw err;
+        }
+        this.console.log(`[intercom] FFmpegInput parsed: ${JSON.stringify(ffmpegInputRaw)}`);
+
         const inputArgs = ffmpegInputRaw.inputArguments;
         if (!inputArgs?.length) {
             throw new Error('MediaObject did not produce ffmpeg input arguments — cannot start intercom');

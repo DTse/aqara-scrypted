@@ -266,7 +266,7 @@ export class IntercomSession {
         const args = [
             '-hide_banner',
             '-loglevel',
-            'error',
+            'info',
             '-fflags',
             'nobuffer',
             '-flags',
