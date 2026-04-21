@@ -61,5 +61,19 @@
         "typescript": "^6.0.3",
         "typescript-eslint": "^8.59.0",
         "vitest": "^4.1.5"
-    }
+    },
+    "main": "out/main.nodejs.js",
+    "files": [
+        "out/",
+        "README.md"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/DTse/aqara-scrypted.git"
+    },
+    "author": "DTse",
+    "bugs": {
+        "url": "https://github.com/DTse/aqara-scrypted/issues"
+    },
+    "homepage": "https://github.com/DTse/aqara-scrypted#readme"
 }

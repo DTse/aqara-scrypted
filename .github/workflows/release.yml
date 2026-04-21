@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # needed to create the GitHub release
+  id-token: write # needed for npm Trusted Publishing (OIDC)
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Resolve version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          {
+            echo "version=$VERSION"
+            echo "tag=${GITHUB_REF#refs/tags/}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify package.json version matches tag
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$PKG_VERSION" != "${{ steps.version.outputs.version }}" ]; then
+            echo "::error::package.json version ($PKG_VERSION) does not match tag (${{ steps.version.outputs.version }})"
+            exit 1
+          fi
+
+      - name: Publish to npm (via Trusted Publishing / OIDC)
+        # No NPM_TOKEN needed — npm exchanges the GitHub OIDC token for a
+        # short-lived, workflow-scoped publish token. Configure the trusted
+        # publisher once on npmjs.com → package Settings → Trusted Publisher.
+        # For public packages, provenance attestations are generated automatically.
+        run: pnpm publish --access public --no-git-checks --provenance
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          if [ -f CHANGELOG.md ]; then
+            awk '/^## \['"${{ steps.version.outputs.version }}"'\]/{flag=1; next} /^## \[/ && flag{flag=0} flag' CHANGELOG.md > current_changelog.md
+            if [ -s current_changelog.md ]; then
+              echo "found=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "found=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ steps.version.outputs.tag }}
+          name: Release ${{ steps.version.outputs.tag }}
+          bodyFile: ${{ steps.changelog.outputs.found == 'true' && 'current_changelog.md' || '' }}
+          body: ${{ steps.changelog.outputs.found == 'false' && 'See the commit history for the changes in this release.' || '' }}
+          artifacts: out/plugin.zip
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
