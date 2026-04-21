@@ -152,7 +152,7 @@ export class IntercomSession {
             sock.once('connect', () => {
                 clearTimeout(timeout);
                 this.tcpSocket = sock;
-                sock.on('data', chunk => this.handleTcpData(chunk));
+                sock.on('data', (chunk: Buffer) => this.handleTcpData(chunk));
                 sock.on('close', () => {
                     if (!this.stopped) {
                         this.logger.warn('[intercom] TCP socket closed unexpectedly');

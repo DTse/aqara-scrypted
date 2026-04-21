@@ -5,9 +5,7 @@ import { fileURLToPath } from 'node:url';
 import importPlugin from 'eslint-plugin-import';
 import { configs as tseslint } from 'typescript-eslint';
 import prettier from 'eslint-plugin-prettier/recommended';
-import perfectionistPlugin from 'eslint-plugin-perfectionist';
-
-const { configs: perfectionist } = perfectionistPlugin;
+import { configs as perfectionist } from 'eslint-plugin-perfectionist';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

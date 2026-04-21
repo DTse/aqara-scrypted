@@ -17,23 +17,16 @@ import sdk, {
     ResponseMediaStreamOptions
 } from '@scrypted/sdk';
 import net from 'node:net';
-import { Buffer } from 'node:buffer';
-import { randomBytes, timingSafeEqual as nodeTimingSafeEqual } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 
 import { IntercomSession } from './intercom-session';
 import { TYPE_ACK, buildPacket, parsePacket, TYPE_STOP_VOICE, TYPE_START_VOICE } from './protocol';
 
-const timingSafeEqual = (a: string, b: string): boolean => {
-    const bufA = Buffer.from(a);
-    const bufB = Buffer.from(b);
-    return bufA.length === bufB.length && nodeTimingSafeEqual(bufA, bufB);
-};
+import { ChannelId, buildRtspUrl, resolveChannel, parseRingEndpoint, parseIntercomVolume, timingSafeStringEqual } from './helpers';
 
 const { mediaManager, endpointManager } = sdk;
 
 const DOORBELL_RESET_MS = 10_000;
-
-type ChannelId = 'ch1' | 'ch2' | 'ch3';
 
 interface ChannelDescriptor {
     name: string;
@@ -234,16 +227,13 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Htt
     // ---------- Settings ----------
 
     async onRequest(request: HttpRequest, response: HttpResponse): Promise<void> {
-        const match = (request.url || '').match(/\/ring\/([A-Za-z0-9_-]+)\/?(?:\?.*)?$/);
-        if (!match) {
+        const parsed = parseRingEndpoint(request.url);
+        if (!parsed) {
             response.send('Not Found', { code: 404 });
             return;
         }
 
-        const expected = this.getDoorbellToken();
-        const received = match[1];
-        // Constant-time compare to avoid leaking token via timing.
-        if (received.length !== expected.length || !timingSafeEqual(received, expected)) {
+        if (!timingSafeStringEqual(parsed.token, this.getDoorbellToken())) {
             this.console.warn('[doorbell] webhook hit with invalid token');
             response.send('Unauthorized', { code: 401 });
             return;
@@ -393,15 +383,13 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Htt
     // ---------- Test tone (diagnostic) ----------
 
     private buildRtspUrl(channelId: ChannelId): string {
-        const host = this.storage.getItem('host') || '';
-        const port = this.storage.getItem('rtspPort') || '8554';
-        const user = encodeURIComponent(this.storage.getItem('username') || '');
-        const pass = encodeURIComponent(this.storage.getItem('password') || '');
-        if (!host) {
-            throw new Error('Camera host is not configured. Open the camera settings and set the IP Address.');
-        }
-        const auth = user ? `${user}:${pass}@` : '';
-        return `rtsp://${auth}${host}:${port}/${channelId}`;
+        return buildRtspUrl({
+            channelId,
+            host: this.storage.getItem('host') || '',
+            port: this.storage.getItem('rtspPort') || '8554',
+            username: this.storage.getItem('username') || undefined,
+            password: this.storage.getItem('password') || undefined
+        });
     }
 
     // ---------- Intercom (two-way audio) ----------
@@ -523,18 +511,10 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Htt
     // ---------- Internal ----------
 
     private resolveChannelId(key: string, fallback: ChannelId): ChannelId {
-        const raw = (this.storage.getItem(key) || fallback) as ChannelId;
-        return raw in CHANNELS ? raw : fallback;
+        return resolveChannel(this.storage.getItem(key), fallback);
     }
 
     private resolveIntercomVolume(): number {
-        const raw = this.storage.getItem('intercomVolume');
-        const parsed = raw ? Number.parseFloat(raw) : Number.NaN;
-
-        if (!Number.isFinite(parsed) || parsed <= 0) {
-            return 1;
-        }
-
-        return parsed;
+        return parseIntercomVolume(this.storage.getItem('intercomVolume'));
     }
 }

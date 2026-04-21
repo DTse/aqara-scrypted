@@ -17,7 +17,7 @@ import { AqaraCamera } from './camera';
 const { deviceManager } = sdk;
 
 export class AqaraProvider extends ScryptedDeviceBase implements DeviceCreator, DeviceProvider, Settings {
-    private cameras = new Map<string, AqaraCamera>();
+    private readonly cameras = new Map<string, AqaraCamera>();
 
     constructor(nativeId?: string) {
         super(nativeId);

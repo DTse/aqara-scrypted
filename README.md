@@ -1,6 +1,6 @@
 # Aqara Scrypted Plugin
 
-A [Scrypted](https://scrypted.app) plugin for Aqara cameras that expose **RTSP LAN Preview** (tested against the Aqara G410).
+A [Scrypted](https://scrypted.app) plugin for Aqara cameras that expose **RTSP LAN Preview** (tested against the Aqara G410). Based on https://github.com/Darkdragon14/ha-aqara-devices and https://github.com/absent42/aqara-doorbell
 
 ## Status
 
@@ -100,7 +100,7 @@ After pairing the G410 Matter bridge to HA's built-in Matter integration:
    mode: single
    triggers:
      - trigger: state
-       entity_id: event.aqara_g410_front_door_video_doorbell_ringing // change depending on your setup
+       entity_id: event.aqara_g410_front_door_video_doorbell_ringing # change depending on your setup
    conditions: []
    actions:
      - action: rest_command.scrypted_aqara_ring
