@@ -16,7 +16,21 @@ import { AqaraCamera } from './camera';
 
 const { deviceManager } = sdk;
 
-export class AqaraProvider extends ScryptedDeviceBase implements DeviceCreator, DeviceProvider, Settings {
+const AQARA_DEVICE_INFO = {
+    manufacturer: 'Aqara',
+    model: 'Aqara Camera'
+} as const;
+
+const AQARA_CAMERA_INTERFACES = [
+    ScryptedInterface.VideoCamera,
+    ScryptedInterface.Settings,
+    ScryptedInterface.Online,
+    ScryptedInterface.Intercom,
+    ScryptedInterface.BinarySensor,
+    ScryptedInterface.HttpRequestHandler
+] as const;
+
+class AqaraProvider extends ScryptedDeviceBase implements DeviceCreator, DeviceProvider, Settings {
     private readonly cameras = new Map<string, AqaraCamera>();
 
     constructor(nativeId?: string) {
@@ -39,19 +53,9 @@ export class AqaraProvider extends ScryptedDeviceBase implements DeviceCreator, 
         const device: Device = {
             name,
             nativeId,
+            info: AQARA_DEVICE_INFO,
             type: ScryptedDeviceType.Doorbell,
-            info: {
-                manufacturer: 'Aqara',
-                model: 'Aqara Camera'
-            },
-            interfaces: [
-                ScryptedInterface.VideoCamera,
-                ScryptedInterface.Settings,
-                ScryptedInterface.Online,
-                ScryptedInterface.Intercom,
-                ScryptedInterface.BinarySensor,
-                ScryptedInterface.HttpRequestHandler
-            ]
+            interfaces: [...AQARA_CAMERA_INTERFACES]
         };
 
         // Persist configuration BEFORE announcing the device, so the camera's
@@ -149,20 +153,10 @@ export class AqaraProvider extends ScryptedDeviceBase implements DeviceCreator, 
 
                 await deviceManager.onDeviceDiscovered({
                     nativeId: nid,
+                    info: AQARA_DEVICE_INFO,
                     type: ScryptedDeviceType.Doorbell,
-                    name: storage.getItem('name') || 'Aqara Camera',
-                    info: {
-                        manufacturer: 'Aqara',
-                        model: 'Aqara Camera'
-                    },
-                    interfaces: [
-                        ScryptedInterface.VideoCamera,
-                        ScryptedInterface.Settings,
-                        ScryptedInterface.Online,
-                        ScryptedInterface.Intercom,
-                        ScryptedInterface.BinarySensor,
-                        ScryptedInterface.HttpRequestHandler
-                    ]
+                    interfaces: [...AQARA_CAMERA_INTERFACES],
+                    name: storage.getItem('name') || 'Aqara Camera'
                 });
             }
         } catch (err) {
@@ -170,3 +164,5 @@ export class AqaraProvider extends ScryptedDeviceBase implements DeviceCreator, 
         }
     }
 }
+
+export { AqaraProvider };

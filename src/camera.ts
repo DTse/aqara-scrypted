@@ -26,7 +26,10 @@ import { ChannelId, buildRtspUrl, resolveChannel, parseRingEndpoint, parseInterc
 
 const { mediaManager, endpointManager } = sdk;
 
+const CONTROL_PORT = 54324;
 const DOORBELL_RESET_MS = 10_000;
+const PROBE_ACK_TIMEOUT_MS = 3000;
+const PROBE_CONNECT_TIMEOUT_MS = 3000;
 
 interface ChannelDescriptor {
     name: string;
@@ -46,7 +49,7 @@ const CHANNELS: Record<ChannelId, ChannelDescriptor> = {
     ch2: { id: 'ch2', width: 1280, height: 720, name: 'Medium (1280x720)' }
 };
 
-export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, HttpRequestHandler, Intercom, Settings, VideoCamera {
+class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, HttpRequestHandler, Intercom, Settings, VideoCamera {
     private doorbellResetTimer?: NodeJS.Timeout;
     private intercomSession?: IntercomSession;
 
@@ -60,12 +63,11 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Htt
 
     /** Returns the current doorbell webhook token, creating one on first use. */
     getDoorbellToken(): string {
-        let token = this.storage.getItem('doorbellToken');
-        if (!token) {
-            token = randomBytes(16).toString('hex');
-            this.storage.setItem('doorbellToken', token);
-        }
-        return token;
+        const existing = this.storage.getItem('doorbellToken');
+        if (existing) return existing;
+        const fresh = randomBytes(16).toString('hex');
+        this.storage.setItem('doorbellToken', fresh);
+        return fresh;
     }
 
     async getSettings(): Promise<Setting[]> {
@@ -172,7 +174,7 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Htt
     async getVideoStream(options?: RequestMediaStreamOptions): Promise<MediaObject> {
         const requestedId = (options?.id as ChannelId) || undefined;
         const mainId = this.resolveChannelId('mainChannel', 'ch1');
-        const channelId = requestedId && requestedId in CHANNELS ? requestedId : mainId;
+        const channelId = requestedId && Object.hasOwn(CHANNELS, requestedId) ? requestedId : mainId;
 
         const url = this.buildRtspUrl(channelId);
         const channel = CHANNELS[channelId];
@@ -224,8 +226,6 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Htt
         return options;
     }
 
-    // ---------- Settings ----------
-
     async onRequest(request: HttpRequest, response: HttpResponse): Promise<void> {
         const parsed = parseRingEndpoint(request.url);
         if (!parsed) {
@@ -268,7 +268,7 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Htt
         }
         if (key === 'mainChannel' || key === 'subChannel') {
             const id = String(value).trim() as ChannelId;
-            if (!(id in CHANNELS)) {
+            if (!Object.hasOwn(CHANNELS, id)) {
                 throw new Error(`Unknown channel: ${value}`);
             }
             this.storage.setItem(key, id);
@@ -277,8 +277,6 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Htt
         }
         this.onDeviceEvent(ScryptedInterface.Settings, undefined);
     }
-
-    // ---------- VideoCamera ----------
 
     release(): void {
         if (this.doorbellResetTimer) {
@@ -301,13 +299,8 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Htt
             this.intercomSession = undefined;
         }
 
-        // Log what Scrypted handed us so we can see the input format.
-        try {
-            const { mimeType } = media as unknown as { mimeType?: string };
-            this.console.log(`[intercom] media mimeType=${mimeType ?? 'unknown'}`);
-        } catch {
-            // ignore
-        }
+        const { mimeType } = media as unknown as { mimeType?: string };
+        this.console.log(`[intercom] media mimeType=${mimeType ?? 'unknown'}`);
 
         // Scrypted converts FFmpegInput media to a Buffer containing JSON;
         // parse it back to the real object.
@@ -356,8 +349,6 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Htt
         }
     }
 
-    // ---------- Intercom probe (diagnostic) ----------
-
     /**
      * Fires the BinarySensor as if the doorbell were pressed. Idempotent: if the
      * sensor is already on, extends the reset window instead of stacking timers.
@@ -380,8 +371,6 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Htt
         return `${root}/ring/${this.getDoorbellToken()}`;
     }
 
-    // ---------- Test tone (diagnostic) ----------
-
     private buildRtspUrl(channelId: ChannelId): string {
         return buildRtspUrl({
             channelId,
@@ -391,8 +380,6 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Htt
             password: this.storage.getItem('password') || undefined
         });
     }
-
-    // ---------- Intercom (two-way audio) ----------
 
     private async playTestTone(): Promise<void> {
         const host = (this.storage.getItem('host') || '').trim();
@@ -443,7 +430,7 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Htt
             return;
         }
 
-        this.console.log(`[probe] connecting to ${host}:54324 ...`);
+        this.console.log(`[probe] connecting to ${host}:${CONTROL_PORT} ...`);
         const sock = new net.Socket();
         sock.setNoDelay(true);
 
@@ -491,24 +478,21 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Htt
                 this.console.warn('[probe] connect timed out');
                 cleanup('connect-timeout');
                 resolve();
-            }, 3000);
+            }, PROBE_CONNECT_TIMEOUT_MS);
 
-            sock.connect(54324, host, () => {
+            sock.connect(CONTROL_PORT, host, () => {
                 clearTimeout(timeout);
                 const pkt = buildPacket(TYPE_START_VOICE, sessionTs);
                 this.console.log(`[probe] connected. sending START_VOICE ${pkt.length}B hex=${pkt.toString('hex')}`);
                 sock.write(pkt);
 
-                // Give the camera up to 3s to respond; then close regardless.
                 setTimeout(() => {
                     if (!sock.destroyed) cleanup('no-ack-timeout');
                     resolve();
-                }, 3000);
+                }, PROBE_ACK_TIMEOUT_MS);
             });
         });
     }
-
-    // ---------- Internal ----------
 
     private resolveChannelId(key: string, fallback: ChannelId): ChannelId {
         return resolveChannel(this.storage.getItem(key), fallback);
@@ -518,3 +502,5 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Htt
         return parseIntercomVolume(this.storage.getItem('intercomVolume'));
     }
 }
+
+export { AqaraCamera };

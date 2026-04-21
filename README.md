@@ -23,20 +23,30 @@ A [Scrypted](https://scrypted.app) plugin for Aqara cameras that expose **RTSP L
 
 ## Install
 
-```bash
-npm install
-npm run build
-npm run scrypted-deploy <your-scrypted-host>
-```
+1. Open the **Scrypted** web UI.
+2. Click **Plugins** in the sidebar, then click **Install a Plugin**.
+3. Search for **`aqara-scrypted`** in the npm registry and click **Install**.
+4. Wait a few seconds for Scrypted to download and initialise the plugin — you'll see **Aqara Plugin** appear in the plugin list.
 
-Or upload `dist/plugin.zip` via Scrypted → Plugins → Install from file.
+No terminal, no build step, no file upload needed.
 
-## Configure
+## Add your camera
 
-1. Scrypted UI → Plugins → **Aqara Plugin** → **Add Device**.
-2. Fill in name, IP address, RTSP username, RTSP password.
-3. Open the new camera and confirm live view works.
-4. (Optional) Set up ring events — see below.
+1. In the Scrypted web UI, click **Plugins** → **Aqara Plugin** → **Add Device**.
+2. Fill in:
+   - **Name:** any friendly name (e.g. *Front Door*).
+   - **IP Address:** your camera's LAN IP (from the Aqara Home app).
+   - **RTSP Username** and **RTSP Password:** the ones generated when you enabled **RTSP LAN Preview**.
+3. Open the newly added camera from the **Devices** list and confirm the live preview works.
+4. *(Optional)* Set up doorbell ring events — see [Doorbell ring events](#doorbell-ring-events) below.
+
+## Updating
+
+Scrypted checks for plugin updates automatically. When a new version is available, a badge appears on **Plugins** → **Aqara Plugin**; click the update button and Scrypted pulls the new version from npm and restarts the plugin. Your camera configuration is preserved.
+
+## Uninstalling
+
+**Plugins** → **Aqara Plugin** → ⋮ menu → **Uninstall**. This removes the plugin and all cameras you added through it.
 
 ## Channels
 
@@ -142,3 +152,19 @@ The Aqara LAN protocol does **not** expose motion events to third parties. Best 
 1. **Recommended:** install the [`@scrypted/objectdetector`](https://github.com/koush/scrypted/tree/main/plugins/objectdetector) plugin plus a detector (`@scrypted/tensorflow-lite`, or Scrypted NVR's detection if you have an NVR license). Gives you object-aware motion (person / car / animal) that Aqara's native PIR can't.
 2. Use Scrypted's built-in motion detection plugin for basic frame-diff motion.
 3. If the camera is already paired to Home Assistant via HomeKit Controller, HA exposes the native PIR motion sensor. Bridge that entity into Scrypted via the Home Assistant plugin.
+
+## Development
+
+Only needed if you're contributing a code change or running an unreleased version. Regular users should use the **Install** section above.
+
+Requires [pnpm](https://pnpm.io) and Node.js 22+.
+
+```bash
+pnpm install
+pnpm run build
+pnpm run scrypted-deploy <your-scrypted-host>
+```
+
+Other useful scripts: `pnpm test` (vitest), `pnpm run lint`, `pnpm run typecheck`, `pnpm run dev` (rebuild on change).
+
+Issues and pull requests welcome on the [GitHub repo](https://github.com/DTse/aqara-scrypted).

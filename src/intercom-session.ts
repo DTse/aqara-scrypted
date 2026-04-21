@@ -33,7 +33,7 @@ const HEARTBEAT_MAX_FAILURES = 3;
  *   5. Heartbeat every 5s on TCP
  *   6. On stop(): STOP_VOICE, kill ffmpeg, close sockets
  */
-export class IntercomSession {
+class IntercomSession {
     /**
      * Stream audio into the ffmpeg encoder. Returns the writable stream so the
      * caller can pipe a MediaObject-sourced ffmpeg output into it.
@@ -345,3 +345,5 @@ export class IntercomSession {
         }, HEARTBEAT_INTERVAL_MS);
     }
 }
+
+export { IntercomSession };

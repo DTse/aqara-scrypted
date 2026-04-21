@@ -5,14 +5,14 @@
  * and ported from https://github.com/absent42/aqara-doorbell (Python).
  */
 
-export const MAGIC = Buffer.from([0xfe, 0xef]);
+const MAGIC = Buffer.from([0xfe, 0xef]);
 
-export const TYPE_START_VOICE = 0;
-export const TYPE_STOP_VOICE = 1;
-export const TYPE_ACK = 2;
-export const TYPE_HEARTBEAT = 3;
+const TYPE_START_VOICE = 0;
+const TYPE_STOP_VOICE = 1;
+const TYPE_ACK = 2;
+const TYPE_HEARTBEAT = 3;
 
-export const RTP_PAYLOAD_TYPE = 97;
+const RTP_PAYLOAD_TYPE = 97;
 
 // --- CRC-16/KERMIT (Aqara variant) ---
 // poly=0x8408 (reflected 0x1021), init=0xFFFF, final XOR 0xFFFF.
@@ -36,13 +36,13 @@ const CRC16_TABLE = new Uint16Array([
     0x0f78
 ]);
 
-export function crc16Kermit(data: Buffer): number {
+const crc16Kermit = (data: Buffer): number => {
     let crc = 0xffff;
     for (const byte of data) {
         crc = CRC16_TABLE[(crc ^ byte) & 0xff] ^ (crc >> 8);
     }
     return ~crc & 0xffff;
-}
+};
 
 // --- LmLocalPacket (TCP 54324) ---
 //
@@ -50,13 +50,13 @@ export function crc16Kermit(data: Buffer): number {
 // CRC covers Type through end of Payload.
 // ACK payload = 1 byte. Other types = 8 byte big-endian uint64 (timestamp ms).
 
-export interface ParsedPacket {
+interface ParsedPacket {
     type: number;
     typeName: string;
     value: bigint | number;
 }
 
-export function buildPacket(type: number, value: bigint | number): Buffer {
+const buildPacket = (type: number, value: bigint | number): Buffer => {
     const payload =
         type === TYPE_ACK
             ? Buffer.from([Number(value) & 0xff])
@@ -77,7 +77,7 @@ export function buildPacket(type: number, value: bigint | number): Buffer {
     crcBuf.writeUInt16BE(crc);
 
     return Buffer.concat([header, payload, crcBuf]);
-}
+};
 
 const TYPE_NAMES: Record<number, string> = {
     [TYPE_ACK]: 'ACK',
@@ -87,7 +87,7 @@ const TYPE_NAMES: Record<number, string> = {
 };
 
 /** Parse a single packet from a buffer. Returns null on any validation failure. */
-export function parsePacket(data: Buffer): null | ParsedPacket {
+const parsePacket = (data: Buffer): null | ParsedPacket => {
     if (data.length < 8) return null;
     if (data[0] !== MAGIC[0] || data[1] !== MAGIC[1]) return null;
 
@@ -106,11 +106,11 @@ export function parsePacket(data: Buffer): null | ParsedPacket {
     const value: bigint | number = type === TYPE_ACK ? payload[0] : isEightPayload;
 
     return { type, value, typeName: TYPE_NAMES[type] ?? '?' };
-}
+};
 
 // --- Minimal RTP header (RFC 3550) ---
 
-export function buildRtpHeader(payloadType: number, seqNum: number, timestamp: number, ssrc: number): Buffer {
+const buildRtpHeader = (payloadType: number, seqNum: number, timestamp: number, ssrc: number): Buffer => {
     const b = Buffer.alloc(12);
     b.writeUInt8(0x80, 0); // V=2, no padding, no ext, no CSRC
     b.writeUInt8(payloadType & 0x7f, 1);
@@ -118,7 +118,7 @@ export function buildRtpHeader(payloadType: number, seqNum: number, timestamp: n
     b.writeUInt32BE(timestamp >>> 0, 4);
     b.writeUInt32BE(ssrc >>> 0, 8);
     return b;
-}
+};
 
 // --- AAC-ADTS frame extractor ---
 
@@ -127,10 +127,12 @@ export function buildRtpHeader(payloadType: number, seqNum: number, timestamp: n
  * the leftover tail bytes that were not consumed (may contain a partial frame
  * to prepend to the next read).
  */
-export function extractAdtsFrames(data: Buffer): {
+const extractAdtsFrames = (
+    data: Buffer
+): {
     frames: Buffer[];
     remainder: Buffer;
-} {
+} => {
     const frames: Buffer[] = [];
     let offset = 0;
     while (offset <= data.length - 7) {
@@ -145,4 +147,19 @@ export function extractAdtsFrames(data: Buffer): {
         offset += frameLen;
     }
     return { frames, remainder: data.subarray(offset) };
-}
+};
+
+export {
+    MAGIC,
+    TYPE_ACK,
+    buildPacket,
+    crc16Kermit,
+    parsePacket,
+    TYPE_HEARTBEAT,
+    buildRtpHeader,
+    TYPE_STOP_VOICE,
+    TYPE_START_VOICE,
+    RTP_PAYLOAD_TYPE,
+    extractAdtsFrames,
+    type ParsedPacket
+};
