@@ -40,11 +40,18 @@ export class AqaraProvider extends ScryptedDeviceBase implements DeviceCreator, 
             name,
             nativeId,
             type: ScryptedDeviceType.Doorbell,
-            interfaces: [ScryptedInterface.VideoCamera, ScryptedInterface.Settings, ScryptedInterface.Online, ScryptedInterface.Intercom],
             info: {
                 manufacturer: 'Aqara',
                 model: 'Aqara Camera'
-            }
+            },
+            interfaces: [
+                ScryptedInterface.VideoCamera,
+                ScryptedInterface.Settings,
+                ScryptedInterface.Online,
+                ScryptedInterface.Intercom,
+                ScryptedInterface.BinarySensor,
+                ScryptedInterface.HttpRequestHandler
+            ]
         };
 
         // Persist configuration BEFORE announcing the device, so the camera's
@@ -153,7 +160,8 @@ export class AqaraProvider extends ScryptedDeviceBase implements DeviceCreator, 
                         ScryptedInterface.Settings,
                         ScryptedInterface.Online,
                         ScryptedInterface.Intercom,
-                        ScryptedInterface.BinarySensor
+                        ScryptedInterface.BinarySensor,
+                        ScryptedInterface.HttpRequestHandler
                     ]
                 });
             }

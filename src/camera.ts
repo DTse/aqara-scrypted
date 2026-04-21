@@ -2,23 +2,36 @@ import sdk, {
     Setting,
     Intercom,
     Settings,
+    HttpRequest,
     FFmpegInput,
     MediaObject,
     VideoCamera,
+    HttpResponse,
     BinarySensor,
     SettingValue,
     ScryptedInterface,
     ScryptedMimeTypes,
     ScryptedDeviceBase,
+    HttpRequestHandler,
     RequestMediaStreamOptions,
     ResponseMediaStreamOptions
 } from '@scrypted/sdk';
 import net from 'node:net';
+import { Buffer } from 'node:buffer';
+import { randomBytes, timingSafeEqual as nodeTimingSafeEqual } from 'node:crypto';
 
 import { IntercomSession } from './intercom-session';
 import { TYPE_ACK, buildPacket, parsePacket, TYPE_STOP_VOICE, TYPE_START_VOICE } from './protocol';
 
-const { mediaManager } = sdk;
+const timingSafeEqual = (a: string, b: string): boolean => {
+    const bufA = Buffer.from(a);
+    const bufB = Buffer.from(b);
+    return bufA.length === bufB.length && nodeTimingSafeEqual(bufA, bufB);
+};
+
+const { mediaManager, endpointManager } = sdk;
+
+const DOORBELL_RESET_MS = 10_000;
 
 type ChannelId = 'ch1' | 'ch2' | 'ch3';
 
@@ -40,16 +53,26 @@ const CHANNELS: Record<ChannelId, ChannelDescriptor> = {
     ch2: { id: 'ch2', width: 1280, height: 720, name: 'Medium (1280x720)' }
 };
 
-export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Intercom, Settings, VideoCamera {
+export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, HttpRequestHandler, Intercom, Settings, VideoCamera {
+    private doorbellResetTimer?: NodeJS.Timeout;
     private intercomSession?: IntercomSession;
 
     constructor(nativeId: string) {
         super(nativeId);
         this.online = true;
-        // BinarySensor is declared only to satisfy HomeKit's Doorbell accessory
-        // requirements. We can't detect actual doorbell presses (see README), so
-        // reset any stale state on startup.
+        // Reset any stale state on startup — a reload while the doorbell was
+        // ringing would otherwise leave the sensor stuck on.
         this.binaryState = false;
+    }
+
+    /** Returns the current doorbell webhook token, creating one on first use. */
+    getDoorbellToken(): string {
+        let token = this.storage.getItem('doorbellToken');
+        if (!token) {
+            token = randomBytes(16).toString('hex');
+            this.storage.setItem('doorbellToken', token);
+        }
+        return token;
     }
 
     async getSettings(): Promise<Setting[]> {
@@ -57,6 +80,11 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Int
         const channelSummary = Object.values(CHANNELS)
             .map(c => `${c.id} = ${c.name}`)
             .join(', ');
+
+        const webhookUrl = await this.buildDoorbellWebhookUrl().catch(err => {
+            this.console.warn('Failed to build webhook URL:', err);
+            return 'Error: could not build URL. Check plugin logs.';
+        });
 
         return [
             {
@@ -96,8 +124,34 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Int
                 description: `Low-bitrate stream for thumbnails. ${channelSummary}.`
             },
             {
+                readonly: true,
+                value: webhookUrl,
+                title: 'Webhook URL',
+                key: 'doorbellWebhookUrl',
+                group: 'Doorbell Ring Events',
+                description:
+                    "Fire a GET or POST to this URL to trigger a doorbell ring. See the plugin README for copy-paste setup recipes (Home Assistant, Apple Shortcuts, curl). Aqara's LAN protocol doesn't expose press events directly — you configure Aqara Home → Matter → Scene and Signal Sync once, then have your Matter controller call this URL."
+            },
+            {
+                type: 'button',
+                key: 'testDoorbell',
+                title: 'Send Test Trigger',
+                group: 'Doorbell Ring Events',
+                description:
+                    'Fires the BinarySensor now, as if the webhook were called. Use to verify HomeKit/NVR see the ring before you set up the Matter side.'
+            },
+            {
+                type: 'button',
+                title: 'Regenerate Token',
+                group: 'Doorbell Ring Events',
+                key: 'regenerateDoorbellToken',
+                description:
+                    'Invalidates the current webhook URL and generates a new one. Anyone with the old URL will no longer be able to trigger the doorbell.'
+            },
+            {
                 type: 'button',
                 key: 'probeIntercom',
+                group: 'Intercom (diagnostic)',
                 title: 'Test Intercom Connection',
                 description:
                     'Opens a TCP session to the camera on port 54324, sends START_VOICE, logs the response, then closes. Use to verify protocol compatibility before trying real talkback.'
@@ -106,6 +160,7 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Int
                 type: 'button',
                 key: 'testTone',
                 title: 'Play Test Tone (3s)',
+                group: 'Intercom (diagnostic)',
                 description:
                     "Runs the full intercom pipeline (TCP session + UDP RTP + ffmpeg AAC) by streaming a 3-second 440Hz sine wave to the camera's speaker. Listen to the camera — if you hear a beep, 2-way audio works."
             },
@@ -113,14 +168,13 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Int
                 type: 'number',
                 key: 'intercomVolume',
                 title: 'Intercom Volume',
+                group: 'Intercom (diagnostic)',
                 value: this.storage.getItem('intercomVolume') || '2.5',
                 description:
                     'Volume multiplier applied to outgoing talkback audio. 1.0 = original, 2.0 = ~2× louder, 3.0 = ~3× louder. Above ~5.0 you will get clipping/distortion. Changes apply to the next talkback session.'
             }
         ];
     }
-
-    // ---------- Settings ----------
 
     async getVideoStream(options?: RequestMediaStreamOptions): Promise<MediaObject> {
         const requestedId = (options?.id as ChannelId) || undefined;
@@ -177,7 +231,27 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Int
         return options;
     }
 
-    // ---------- VideoCamera ----------
+    // ---------- Settings ----------
+
+    async onRequest(request: HttpRequest, response: HttpResponse): Promise<void> {
+        const match = (request.url || '').match(/\/ring\/([A-Za-z0-9_-]+)\/?(?:\?.*)?$/);
+        if (!match) {
+            response.send('Not Found', { code: 404 });
+            return;
+        }
+
+        const expected = this.getDoorbellToken();
+        const received = match[1];
+        // Constant-time compare to avoid leaking token via timing.
+        if (received.length !== expected.length || !timingSafeEqual(received, expected)) {
+            this.console.warn('[doorbell] webhook hit with invalid token');
+            response.send('Unauthorized', { code: 401 });
+            return;
+        }
+
+        this.triggerDoorbell();
+        response.send('ok', { code: 200, headers: { 'content-type': 'text/plain' } });
+    }
 
     async putSetting(key: string, value: SettingValue): Promise<void> {
         if (key === 'probeIntercom') {
@@ -186,6 +260,20 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Int
         }
         if (key === 'testTone') {
             await this.playTestTone();
+            return;
+        }
+        if (key === 'testDoorbell') {
+            this.triggerDoorbell();
+            return;
+        }
+        if (key === 'regenerateDoorbellToken') {
+            this.storage.setItem('doorbellToken', randomBytes(16).toString('hex'));
+            this.console.log('[doorbell] token regenerated; previous webhook URL is no longer valid');
+            this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+            return;
+        }
+        if (key === 'doorbellWebhookUrl') {
+            // Read-only; ignore writes.
             return;
         }
         if (key === 'mainChannel' || key === 'subChannel') {
@@ -200,11 +288,15 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Int
         this.onDeviceEvent(ScryptedInterface.Settings, undefined);
     }
 
+    // ---------- VideoCamera ----------
+
     release(): void {
+        if (this.doorbellResetTimer) {
+            clearTimeout(this.doorbellResetTimer);
+            this.doorbellResetTimer = undefined;
+        }
         void this.intercomSession?.stop('device-released');
     }
-
-    // ---------- Intercom probe (diagnostic) ----------
 
     async startIntercom(media: MediaObject): Promise<void> {
         this.console.log('[intercom] startIntercom called');
@@ -272,6 +364,30 @@ export class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, Int
         if (session) {
             await session.stop('stopIntercom');
         }
+    }
+
+    // ---------- Intercom probe (diagnostic) ----------
+
+    /**
+     * Fires the BinarySensor as if the doorbell were pressed. Idempotent: if the
+     * sensor is already on, extends the reset window instead of stacking timers.
+     */
+    triggerDoorbell(): void {
+        this.console.log('[doorbell] triggered');
+        this.binaryState = true;
+        if (this.doorbellResetTimer) {
+            clearTimeout(this.doorbellResetTimer);
+        }
+        this.doorbellResetTimer = setTimeout(() => {
+            this.binaryState = false;
+            this.doorbellResetTimer = undefined;
+        }, DOORBELL_RESET_MS);
+    }
+
+    private async buildDoorbellWebhookUrl(): Promise<string> {
+        const base = await endpointManager.getLocalEndpoint(this.nativeId, { public: true, insecure: true });
+        const root = base.endsWith('/') ? base.slice(0, -1) : base;
+        return `${root}/ring/${this.getDoorbellToken()}`;
     }
 
     // ---------- Test tone (diagnostic) ----------
