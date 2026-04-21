@@ -1,6 +1,6 @@
 {
     "name": "aqara-scrypted",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "description": "Scrypted plugin for Aqara cameras (G410 and compatible models) via local RTSP",
     "scripts": {
         "test": "vitest run",
