@@ -76,8 +76,9 @@ All four must pass. `pnpm test` runs vitest (~100 ms).
 
 ## Publishing
 
-- Releases are tag-triggered: `git tag vX.Y.Z && git push --tags` → the
-  `release.yml` workflow publishes to npm and creates a GitHub release.
+- Releases are tag-triggered: `git tag X.Y.Z && git push --tags` (bare
+  semver, **no `v` prefix**) → the `release.yml` workflow publishes to
+  npm and creates a GitHub release.
 - Publishing uses **npm Trusted Publishing (OIDC)** — there is no stored
   `NPM_TOKEN` secret. Do not reintroduce one.
 - Before suggesting a tag, confirm `package.json` version matches the target
