@@ -5,7 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.0.5] - 2026-04-22
+
+### Fixed
+
+- **Plugin install from Scrypted UI failed** with
+  `Cannot read properties of undefined (reading 'toString')` from
+  `engine.io-client:api`. Root cause: `scrypted-webpack` outputs to `dist/`
+  in production (`NODE_ENV=production`, what `prepublishOnly` runs) but to
+  `out/` in dev. Our published tarball's `files: ["out/", "README.md"]`
+  therefore included an empty `out/` — the actual `dist/plugin.zip` that
+  `prepublishOnly` produced was excluded. Scrypted's installer looks at
+  `dist/plugin.zip` (as every official Scrypted plugin ships) and found
+  nothing. Fixed by changing `files` to `["dist/"]` and removing the
+  `main: "out/main.nodejs.js"` field (not used by Scrypted's plugin
+  loader, and pointing at a webpack bundle that requires Scrypted's
+  runtime context caused a secondary failure during metadata inspection).
+  Sideloading via `pnpm run scrypted-deploy` was unaffected because it
+  uploads `out/plugin.zip` directly.
+
+## [Released]
+
 ## [1.0.4] - 2026-04-21
+
+### Fixed
+
+- **Plugin install from Scrypted UI failed** with
+  `Cannot read properties of undefined (reading 'toString')` from
+  `engine.io-client:api`. Root cause: `scrypted-webpack` outputs to `dist/`
+  in production (`NODE_ENV=production`, what `prepublishOnly` runs) but to
+  `out/` in dev. Our published tarball's `files: ["out/", "README.md"]`
+  therefore included an empty `out/` — the actual `dist/plugin.zip` that
+  `prepublishOnly` produced was excluded. Scrypted's installer looks at
+  `dist/plugin.zip` (as every official Scrypted plugin ships) and found
+  nothing. Fixed by changing `files` to `["dist/"]` and removing the
+  `main: "out/main.nodejs.js"` field (not used by Scrypted's plugin
+  loader, and pointing at a webpack bundle that requires Scrypted's
+  runtime context caused a secondary failure during metadata inspection).
+  Sideloading via `pnpm run scrypted-deploy` was unaffected because it
+  uploads `out/plugin.zip` directly.
 
 ### Added
 
@@ -67,8 +107,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Updating** and **Uninstalling** sections.
 - The old `pnpm install / build / scrypted-deploy` flow moved to a new
   **Development** section at the bottom of the README for contributors.
-
-## [Released]
 
 ## [1.0.0] - 2026-04-21
 
