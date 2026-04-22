@@ -50,7 +50,9 @@ jobs:
         run: pnpm test
 
       - name: Build
-        run: pnpm run build
+        # Production mode so scrypted-webpack outputs to dist/ (matches what
+        # prepublishOnly runs, and what pnpm publish actually ships).
+        run: NODE_ENV=production pnpm run build
 
       - name: Resolve version from tag
         id: version
@@ -98,7 +100,7 @@ jobs:
           name: Release ${{ steps.version.outputs.tag }}
           bodyFile: ${{ steps.changelog.outputs.found == 'true' && 'current_changelog.md' || '' }}
           body: ${{ steps.changelog.outputs.found == 'false' && 'See the commit history for the changes in this release.' || '' }}
-          artifacts: out/plugin.zip
+          artifacts: dist/plugin.zip
           draft: false
           prerelease: ${{ contains(steps.version.outputs.version, '-') }}
         env:
