@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-04-23
+
+### Added
+
+- **Local RTSP relay that rewrites broken camera timestamps.** The plugin
+  now spawns a small per-camera TCP relay on a loopback port. Every
+  `getVideoStream()` points Scrypted at this relay instead of the camera
+  directly. The relay tunnels RTSP/interleaved-RTP traffic to the real
+  camera, and for each RTP packet in the camera→client direction it
+  rewrites the 32-bit timestamp field using a wall-clock-based, per-payload
+  monotonic fixer (clock rates learned from the DESCRIBE response's SDP).
+  This is the final fix for the persistent choppy audio on the G410: the
+  camera firmware sends RTP packets with all timestamps set to zero,
+  which cascades into Rebroadcast's "Unable to find sync frame" and audio
+  dropouts. FFmpeg flags alone can't repair this because Scrypted's
+  Rebroadcast discards the camera plugin's `inputArguments`; and go2rtc's
+  RTSP server output is a raw passthrough that doesn't fix timestamps
+  either. Handling the rewrite at the RTP layer in a relay we own is the
+  only reliable fix. The relay starts lazily on first stream, restarts
+  automatically if the camera's host or port changes, and shuts down with
+  the device.
+
+  The relay forwards RTSP requests verbatim in the client→camera
+  direction (no URL rewrite) so Digest auth hashes that the client
+  computed over the Request-URI remain valid. Camera→client responses
+  still get their `<cameraHost>:<port>` rewritten to the relay's
+  `127.0.0.1:<relayPort>` so that `Content-Base` and any absolute
+  control URIs route subsequent SETUP/PLAY traffic back through us.
+
+  The timestamp fixer now uses **per-codec minimum advance ticks**: for
+  AAC-LC (1024 samples/frame), PCMU/PCMA (160 samples), and Opus (960
+  samples), and for video it defaults to ~1/30s of the track's clock.
+  This prevents downstream encoders ("libopus: Queue input is backward
+  in time") from choking when the camera emits audio packets in bursts
+  at stream start, which would otherwise produce near-zero timestamp
+  deltas between consecutive packets that each carry a full frame of
+  content. The codec name is learned from the SDP's `a=rtpmap` lines.
+
+### Changed
+
+- **Removed the `-use_wallclock_as_timestamps 1` and `-fflags +discardcorrupt`
+  FFmpeg input arguments added in 1.0.7.** They were ineffective: the
+  Scrypted Rebroadcast plugin (`@scrypted/prebuffer-mixin`) rebuilds its
+  input argv from scratch when the default FFmpeg parser is selected —
+  our flags were overwritten with Rebroadcast's own `-fflags +genpts
+  -rtsp_transport tcp`. The real fix now lives in the RTSP relay described
+  above. The `sampleRate: 16 000` audio metadata from 1.0.7 is retained.
+
 ## [1.0.7] - 2026-04-23
 
 ### Fixed

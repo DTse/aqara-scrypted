@@ -19,6 +19,7 @@ import sdk, {
 import net from 'node:net';
 import { randomBytes } from 'node:crypto';
 
+import { RtspRelay } from './rtsp-relay';
 import { IntercomSession } from './intercom-session';
 import { TYPE_ACK, buildPacket, parsePacket, TYPE_STOP_VOICE, TYPE_START_VOICE } from './protocol';
 
@@ -52,6 +53,7 @@ const CHANNELS: Record<ChannelId, ChannelDescriptor> = {
 class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, HttpRequestHandler, Intercom, Settings, VideoCamera {
     private doorbellResetTimer?: NodeJS.Timeout;
     private intercomSession?: IntercomSession;
+    private relay?: RtspRelay;
 
     constructor(nativeId: string) {
         super(nativeId);
@@ -176,13 +178,24 @@ class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, HttpReques
         const mainId = this.resolveChannelId('mainChannel', 'ch1');
         const channelId = requestedId && Object.hasOwn(CHANNELS, requestedId) ? requestedId : mainId;
 
-        const url = this.buildRtspUrl(channelId);
+        // Route every stream through a local RTSP relay that rewrites the
+        // G410's broken RTP timestamps. Without this, downstream (Rebroadcast
+        // → HomeKit / NVR / WebRTC) cascades into dropped sync frames and
+        // choppy audio.
+        const relay = await this.ensureRelay();
+        const url = buildRtspUrl({
+            channelId,
+            host: '127.0.0.1',
+            port: String(relay.localPort),
+            username: this.storage.getItem('username') || undefined,
+            password: this.storage.getItem('password') || undefined
+        });
         const channel = CHANNELS[channelId];
 
         const ffmpegInput: FFmpegInput = {
             url,
             container: 'rtsp',
-            inputArguments: ['-use_wallclock_as_timestamps', '1', '-rtsp_transport', 'tcp', '-fflags', '+discardcorrupt', '-i', url],
+            inputArguments: ['-rtsp_transport', 'tcp', '-i', url],
             mediaStreamOptions: {
                 id: channelId,
                 source: 'local',
@@ -284,6 +297,8 @@ class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, HttpReques
             this.doorbellResetTimer = undefined;
         }
         void this.intercomSession?.stop('device-released');
+        void this.relay?.stop();
+        this.relay = undefined;
     }
 
     async startIntercom(media: MediaObject): Promise<void> {
@@ -379,6 +394,29 @@ class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, HttpReques
             username: this.storage.getItem('username') || undefined,
             password: this.storage.getItem('password') || undefined
         });
+    }
+
+    /**
+     * Lazily bring up the local RTSP relay. Recreated when the camera's
+     * host or port changes so downstream isn't pointed at a stale address.
+     */
+    private async ensureRelay(): Promise<RtspRelay> {
+        const host = (this.storage.getItem('host') || '').trim();
+        if (!host) {
+            throw new Error('Camera host is not configured. Open settings and set the IP Address.');
+        }
+        const port = Number.parseInt(this.storage.getItem('rtspPort') || '8554', 10);
+
+        if (this.relay && (this.relay.cameraHost !== host || this.relay.cameraPort !== port)) {
+            await this.relay.stop();
+            this.relay = undefined;
+        }
+        if (!this.relay) {
+            const relay = new RtspRelay({ cameraHost: host, cameraPort: port, logger: this.console });
+            await relay.start();
+            this.relay = relay;
+        }
+        return this.relay;
     }
 
     private async playTestTone(): Promise<void> {
