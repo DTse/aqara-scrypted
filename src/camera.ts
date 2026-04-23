@@ -182,14 +182,14 @@ class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, HttpReques
         const ffmpegInput: FFmpegInput = {
             url,
             container: 'rtsp',
-            inputArguments: ['-rtsp_transport', 'tcp', '-i', url],
+            inputArguments: ['-use_wallclock_as_timestamps', '1', '-rtsp_transport', 'tcp', '-fflags', '+discardcorrupt', '-i', url],
             mediaStreamOptions: {
                 id: channelId,
                 source: 'local',
                 tool: 'scrypted',
                 container: 'rtsp',
                 name: channel.name,
-                audio: { codec: 'aac' },
+                audio: { codec: 'aac', sampleRate: 16000 },
                 video: {
                     codec: 'h264',
                     width: channel.width,
@@ -213,8 +213,8 @@ class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, HttpReques
                 source: 'local',
                 tool: 'scrypted',
                 container: 'rtsp',
-                audio: { codec: 'aac' },
                 userConfigurable: false,
+                audio: { codec: 'aac', sampleRate: 16000 },
                 video: { codec: 'h264', width: c.width, height: c.height }
             };
         };

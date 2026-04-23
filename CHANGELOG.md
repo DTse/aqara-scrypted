@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.7] - 2026-04-23
+
+### Fixed
+
+- **Choppy / jittery audio and visual artifacts in FFmpeg parser mode.**
+  Two FFmpeg input flags are now passed for every stream:
+  `-use_wallclock_as_timestamps 1` replaces the G410's irregular RTP
+  timestamps with wall-clock time, eliminating the audio jitter and
+  frame-ordering artifacts; `-fflags +discardcorrupt` drops any corrupted
+  partial frames that FFmpeg would otherwise try to decode when the stream
+  starts mid-GOP.  Additionally, the stream metadata now advertises the
+  correct AAC sample rate (16 kHz) so Scrypted can configure its audio
+  pipeline without guessing.
+  Users who switch the Scrypted stream parser to "FFmpeg" should see
+  both issues resolved. (The Scrypted native parser does not use these
+  arguments; if you stay on the native parser and still hear choppiness,
+  switch to FFmpeg in the camera's stream settings.)
+
 ## [1.0.6] - 2026-04-23
 
 ### Fixed
