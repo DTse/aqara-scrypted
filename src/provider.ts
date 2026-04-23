@@ -58,8 +58,12 @@ class AqaraProvider extends ScryptedDeviceBase implements DeviceCreator, DeviceP
             interfaces: [...AQARA_CAMERA_INTERFACES]
         };
 
-        // Persist configuration BEFORE announcing the device, so the camera's
-        // constructor sees the host/creds when Scrypted calls getDevice().
+        // Announce the device first — Scrypted creates the storage record
+        // during discovery. Calling getDeviceStorage before this point
+        // returns undefined in newer SDK versions and throws when we try to
+        // setItem on it.
+        await deviceManager.onDeviceDiscovered(device);
+
         const storage = deviceManager.getDeviceStorage(nativeId);
         storage.setItem('name', name);
         storage.setItem('host', host);
@@ -68,8 +72,6 @@ class AqaraProvider extends ScryptedDeviceBase implements DeviceCreator, DeviceP
         storage.setItem('mainChannel', 'ch1');
         storage.setItem('subChannel', 'ch3');
         storage.setItem('rtspPort', '8554');
-
-        await deviceManager.onDeviceDiscovered(device);
 
         return nativeId;
     }

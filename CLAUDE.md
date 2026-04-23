@@ -29,8 +29,20 @@ until the changelog reflects it.
 
 - **Always use a version header, never `## [Unreleased]`.** The current
   in-progress version is the top `## [X.Y.Z] - DATE` entry in the file.
-  Check `package.json`'s `version` field if unsure — that's the one
-  receiving changes.
+  Check `package.json`'s `version` field if unsure — it should match.
+- **Never add changes to a version that has already shipped to npm.**
+  Once a version has been released — meaning it's been tagged and
+  published — its CHANGELOG entry is frozen. Any subsequent change goes
+  in a **new** version section at the top of the file. Signs a version
+  has shipped: the CI release workflow ran successfully for its tag, the
+  user confirmed the release, or `npm view aqara-scrypted version`
+  matches the most-recent CHANGELOG header. When in doubt, ask.
+- **Creating a new version section is OK** when the previous one is
+  frozen. Use today's date and leave `package.json` at the next semver
+  bump (the user will reconcile `package.json` with the new header before
+  tagging). Pick the bump level based on content: `### Fixed` only →
+  patch (1.0.5 → 1.0.6); `### Added` or `### Changed` compatible →
+  minor; breaking → major.
 - Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) subsections:
   `### Added`, `### Changed`, `### Fixed`, `### Removed`, `### Deprecated`,
   `### Security`. Add the subsection under the version header if it doesn't
@@ -39,9 +51,8 @@ until the changelog reflects it.
   intercom crash on RTSP reconnect" beats "refactored IntercomSession".
 - If a change is genuinely not user-visible (e.g. a typo in a private
   comment), you may skip, but **err on the side of logging**.
-- **Do not bump `package.json`'s version or create a new version section
-  yourself** — the user does that when cutting a release. Your job is to
-  keep adding to the current in-progress version.
+- **Do not bump `package.json`'s version yourself** — the user does that
+  when cutting a release. Your job is to keep the CHANGELOG honest.
 
 When you finish any task, your checklist is: code ✅ → tests ✅ → changelog
 entry ✅. Missing the third = not done.

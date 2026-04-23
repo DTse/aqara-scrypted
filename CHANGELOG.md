@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2026-04-23
+
+### Fixed
+
+- **"Add Device" failed** with
+  `Cannot read properties of undefined (reading 'storage')` from
+  `engine.io-client:api`. `AqaraProvider.createDevice` was calling
+  `deviceManager.getDeviceStorage(nativeId).setItem(...)` **before**
+  `deviceManager.onDeviceDiscovered(device)`. In the current Scrypted SDK,
+  storage is allocated during discovery, so the pre-discovery
+  `getDeviceStorage` call returned undefined and subsequent `setItem`
+  threw. Reordered so discovery runs first, then initial config is
+  written to storage. Matches the pattern used by `@scrypted/reolink` and
+  `@scrypted/onvif`.
+
+### Changed
+
+- Clarified the `CLAUDE.md` changelog rule: never add entries to an
+  already-shipped version — create a new `## [X.Y.Z] - DATE` section at
+  the top of the file instead. Documents how to pick the bump level and
+  reminds that `package.json` is bumped by the user at release time, not
+  by Claude.
+
 ## [1.0.5] - 2026-04-22
 
 ### Fixed
