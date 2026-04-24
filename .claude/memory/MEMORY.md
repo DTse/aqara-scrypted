@@ -1,0 +1,8 @@
+- [Ring event investigation state](project_ring_event.md) — what LAN/packet-capture work has already ruled out.
+- [APK jadx findings (v6.1.5)](project_apk_findings.md) — SecNeo-shielded DEX; `com.aqara.lanlink.Tunnel` is the ECDH+AES tunnel carrying events; Java side unreadable.
+- [Alternate ring-event paths](reference_ring_alternatives.md) — Matter Signal Sync (officially supported) and niceboygithub rooting + mosquitto `ioctl/recv`.
+- [Rebroadcast discards inputArguments](project_rebroadcast_inputargs.md) — prebuffer-mixin rebuilds FFmpeg argv from scratch; camera plugin flags are overwritten.
+- [G410 RTSP stream quirks](project_g410_rtsp_quirks.md) — unset RTP timestamps, PT 96=audio / PT 97=video, AAC-LC 1024 samples/frame.
+- [go2rtc RTSP server is passthrough](reference_go2rtc_rtsp_passthrough.md) — timestamp synthesis only on MP4/MSE/WebRTC outputs, not RTSP; embedding it wouldn't have helped.
+- [RTSP relay state (1.1.0 WIP)](project_rtsp_relay_state.md) — what's built, the ECONNREFUSED recurrence theory, planned RTSP TEARDOWN improvement.
+- [Prefer zero-user-input fixes](feedback_prefers_zero_input_fixes.md) — build fixes into the plugin; external-configuration workarounds are not an acceptable final answer.

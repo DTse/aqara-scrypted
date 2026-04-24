@@ -113,7 +113,7 @@ These came out of prior investigation; do not reopen without new evidence:
 - **The webhook endpoint is per-camera** with a stored token, implemented
   via `HttpRequestHandler` on the camera device (not the provider).
 
-Full context for the above lives in `~/.claude/projects/-Users-dimitris-Desktop-Projects-nosync-aqara-scrypted/memory/`.
+Full context for the above lives in `.claude/memory/` (checked into the repo). Start at `.claude/memory/MEMORY.md` for the index. The auto-memory directory at `~/.claude/projects/.../memory` is symlinked to this path, so any memory Claude Code writes during a session lands in the repo too.
 
 ## Working style
 
