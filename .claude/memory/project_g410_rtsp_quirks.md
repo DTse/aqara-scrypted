@@ -26,7 +26,7 @@ not the "Output #0" block.
 Encoding details:
 - PT 96: `MPEG4-GENERIC/16000/1` (AAC-LC, 16 kHz, mono). `fmtp`: `mode=AAC-hbr`, `sizelength=13`, `indexlength=3`, `indexdeltalength=3`, `config=1408`.
 - PT 97: `H264/90000`, Main profile, `profile-level-id=4D0033`.
-- Video: 20 fps. Main: 1600x1200. Sub (ch3): 640x480. Medium (ch2): 1280x720.
+- Video: 20 fps. Main: 1600x1200. Sub (ch3): 640x480. Medium (ch2): 1280x960.
 
 **3. AAC frame size is 1024 samples per packet** (AAC-LC standard). The
 RTP timestamp fixer uses this as the minimum advance per packet for

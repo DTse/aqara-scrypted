@@ -46,7 +46,7 @@ interface ChannelDescriptor {
 const CHANNELS: Record<ChannelId, ChannelDescriptor> = {
     ch3: { id: 'ch3', width: 640, height: 480, name: 'Sub (640x480)' },
     ch1: { id: 'ch1', width: 1600, height: 1200, name: 'Main (1600x1200)' },
-    ch2: { id: 'ch2', width: 1280, height: 720, name: 'Medium (1280x720)' }
+    ch2: { id: 'ch2', width: 1280, height: 720, name: 'Medium (1280x960)' }
 };
 
 class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, HttpRequestHandler, Intercom, Settings, VideoCamera {
@@ -71,10 +71,8 @@ class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, HttpReques
     }
 
     async getSettings(): Promise<Setting[]> {
-        const channelChoices = Object.keys(CHANNELS);
-        const channelSummary = Object.values(CHANNELS)
-            .map(c => `${c.id} = ${c.name}`)
-            .join(', ');
+        const channelChoices = (Object.keys(CHANNELS) as ChannelId[]).sort();
+        const channelSummary = channelChoices.map(id => `${id} = ${CHANNELS[id].name}`).join(', ');
 
         const webhookUrl = await this.buildDoorbellWebhookUrl().catch(err => {
             this.console.warn('Failed to build webhook URL:', err);
@@ -110,6 +108,13 @@ class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, HttpReques
                 title: 'Main Stream Channel',
                 value: this.resolveChannelId('mainChannel', 'ch1'),
                 description: `Used for full-quality recording (HKSV/NVR). ${channelSummary}.`
+            },
+            {
+                key: 'middleChannel',
+                choices: channelChoices,
+                title: 'Middle Stream Channel',
+                value: this.resolveChannelId('middleChannel', 'ch2'),
+                description: `Extra stream exposed to rebroadcast alongside Main and Sub. ${channelSummary}.`
             },
             {
                 key: 'subChannel',
@@ -204,6 +209,7 @@ class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, HttpReques
     async getVideoStreamOptions(): Promise<ResponseMediaStreamOptions[]> {
         const mainId = this.resolveChannelId('mainChannel', 'ch1');
         const subId = this.resolveChannelId('subChannel', 'ch3');
+        const middleId = this.resolveChannelId('middleChannel', 'ch2');
 
         const toOption = (id: ChannelId): ResponseMediaStreamOptions => {
             const c = CHANNELS[id];
@@ -219,11 +225,11 @@ class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, HttpReques
             };
         };
 
-        const options: ResponseMediaStreamOptions[] = [toOption(mainId)];
-        if (subId !== mainId) {
-            options.push(toOption(subId));
+        const ordered: ChannelId[] = [];
+        for (const id of [mainId, subId, middleId]) {
+            if (!ordered.includes(id)) ordered.push(id);
         }
-        return options;
+        return ordered.map(toOption);
     }
 
     async onRequest(request: HttpRequest, response: HttpResponse): Promise<void> {
@@ -266,7 +272,7 @@ class AqaraCamera extends ScryptedDeviceBase implements BinarySensor, HttpReques
             // Read-only; ignore writes.
             return;
         }
-        if (key === 'mainChannel' || key === 'subChannel') {
+        if (key === 'mainChannel' || key === 'subChannel' || key === 'middleChannel') {
             const id = String(value).trim() as ChannelId;
             if (!Object.hasOwn(CHANNELS, id)) {
                 throw new Error(`Unknown channel: ${value}`);

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.8] - 2026-04-24
+
+### Added
+
+- **Third RTSP stream exposed to rebroadcast, with a matching "Middle
+  Stream Channel" setting.** Previously only the configured Main and
+  Sub channels surfaced in `getVideoStreamOptions`, so rebroadcast saw
+  2 streams even though the G410 advertises three. A new Middle channel
+  setting (default `ch2`, 1280×720) is configurable in the camera's
+  general settings tab, and all three channels now appear to
+  rebroadcast, ordered Main → Sub → Middle (duplicates collapsed).
+
 ## [1.0.7] - 2026-04-23
 
 ### Fixed
