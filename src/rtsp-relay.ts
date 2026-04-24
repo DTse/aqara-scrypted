@@ -39,6 +39,8 @@ import { RtspInterleavedParser } from './rtsp-interleaved-parser';
 const RTP_HEADER_MIN_LEN = 12;
 const RTCP_PT_MIN = 200;
 const RTCP_PT_MAX = 204;
+const UPSTREAM_BACKOFF_MS = 5000;
+const CSEQ_RE = /^cseq:\s*(\d+)/im;
 
 interface RtspRelayOptions {
     logger: Console;
@@ -46,35 +48,49 @@ interface RtspRelayOptions {
     cameraPort: number;
 }
 
+interface SessionHost {
+    isUpstreamInBackoff(): boolean;
+    reportUpstreamConnected(): void;
+    reportUpstreamFailure(err: Error): void;
+}
+
 class RelaySession {
     onClose?: () => void;
 
     private readonly cameraHostPort: string;
     private readonly clientParser = new RtspInterleavedParser();
+    private readonly clientQueue: Buffer[] = [];
     private closed = false;
     private readonly fixers = new Map<number, RtpTimestampFixer>();
     private readonly relayHostPort: string;
 
-    private readonly upstream: net.Socket;
+    private upstream?: net.Socket;
     private readonly upstreamParser = new RtspInterleavedParser();
+    private upstreamReady = false;
 
     constructor(
         private readonly client: net.Socket,
-        private readonly opts: RtspRelayOptions
+        private readonly opts: RtspRelayOptions,
+        private readonly host: SessionHost
     ) {
         this.cameraHostPort = `${opts.cameraHost}:${opts.cameraPort}`;
         const addr = client.localAddress ?? '127.0.0.1';
         this.relayHostPort = `${addr === '::1' ? '127.0.0.1' : addr}:${client.localPort}`;
 
-        this.upstream = net.connect(opts.cameraPort, opts.cameraHost);
-
         client.on('data', (chunk: Buffer) => this.onClientData(chunk));
         client.on('close', () => this.close('client-closed'));
         client.on('error', err => this.onError('client', err));
 
-        this.upstream.on('data', (chunk: Buffer) => this.onUpstreamData(chunk));
-        this.upstream.on('close', () => this.close('upstream-closed'));
-        this.upstream.on('error', err => this.onError('upstream', err));
+        if (host.isUpstreamInBackoff()) {
+            // Camera was refusing connections very recently. Don't open a
+            // new upstream — reply 503 as soon as we have enough of the
+            // client's first request to pick a CSeq, then close.
+            this.opts.logger.log('[relay] upstream in backoff, fast-failing client with 503');
+            queueMicrotask(() => this.respondUpstreamDown('camera unreachable (cooling down)'));
+            return;
+        }
+
+        this.connectUpstream();
     }
 
     close(reason?: string): void {
@@ -82,7 +98,7 @@ class RelaySession {
         this.closed = true;
         if (reason) this.opts.logger.log(`[relay] session closing: ${reason}`);
         this.client.destroy();
-        this.upstream.destroy();
+        this.upstream?.destroy();
         this.onClose?.();
     }
 
@@ -100,6 +116,36 @@ class RelaySession {
                 this.fixers.set(pt, new RtpTimestampFixer(codec.clockRate, minAdvance));
                 this.opts.logger.log(`[relay] learned PT ${pt} ${codec.encodingName}/${codec.clockRate} (min advance ${minAdvance})`);
             }
+        }
+    }
+
+    private connectUpstream(): void {
+        const socket = net.connect(this.opts.cameraPort, this.opts.cameraHost);
+        this.upstream = socket;
+
+        socket.once('connect', () => {
+            this.upstreamReady = true;
+            this.host.reportUpstreamConnected();
+            for (const buf of this.clientQueue) socket.write(buf);
+            this.clientQueue.length = 0;
+        });
+        socket.on('data', (chunk: Buffer) => this.onUpstreamData(chunk));
+        socket.on('close', () => this.close('upstream-closed'));
+        socket.on('error', err => {
+            if (!this.upstreamReady) {
+                this.host.reportUpstreamFailure(err);
+                this.respondUpstreamDown(err.message);
+                return;
+            }
+            this.onError('upstream', err);
+        });
+    }
+
+    private forwardToUpstream(data: Buffer): void {
+        if (this.upstreamReady && this.upstream) {
+            this.upstream.write(data);
+        } else {
+            this.clientQueue.push(data);
         }
     }
 
@@ -127,18 +173,15 @@ class RelaySession {
 
     private onClientData(chunk: Buffer): void {
         for (const item of this.clientParser.feed(chunk)) {
-            if (item.type === 'text') {
-                // Forward RTSP requests verbatim — do NOT rewrite the URL's
-                // host:port here. Digest auth signs the Request-URI and
-                // includes `uri="..."` in the Authorization header; any
-                // rewrite would break the hash and the camera would 401
-                // forever. Most RTSP servers (including the G410) ignore
-                // the host portion of the URL and route on the path alone.
-                this.upstream.write(item.message);
-            } else {
-                // RTCP feedback from client — forward unchanged.
-                this.upstream.write(reencodeBinary(item));
-            }
+            // Forward RTSP requests verbatim — do NOT rewrite the URL's
+            // host:port here. Digest auth signs the Request-URI and
+            // includes `uri="..."` in the Authorization header; any
+            // rewrite would break the hash and the camera would 401
+            // forever. Most RTSP servers (including the G410) ignore
+            // the host portion of the URL and route on the path alone.
+            // Binary items are RTCP feedback; forward unchanged.
+            const data = item.type === 'text' ? item.message : reencodeBinary(item);
+            this.forwardToUpstream(data);
         }
     }
 
@@ -161,6 +204,35 @@ class RelaySession {
         }
     }
 
+    private peekQueuedCseq(): string {
+        for (const buf of this.clientQueue) {
+            const match = CSEQ_RE.exec(buf.toString('utf8'));
+            if (match) return match[1];
+        }
+        return '1';
+    }
+
+    private respondUpstreamDown(detail: string): void {
+        if (this.closed) return;
+        const body = `Camera unreachable: ${detail}\r\n`;
+        const response = [
+            'RTSP/1.0 503 Service Unavailable',
+            `CSeq: ${this.peekQueuedCseq()}`,
+            'Connection: close',
+            'Content-Type: text/plain',
+            `Content-Length: ${Buffer.byteLength(body)}`,
+            '',
+            body
+        ].join('\r\n');
+        try {
+            this.client.write(response);
+            this.client.end();
+        } catch {
+            // Client already closed; nothing to do.
+        }
+        this.close('upstream-unavailable');
+    }
+
     private rewriteTextAddress(message: Buffer, from: string, to: string): Buffer {
         if (!message.includes(from)) return message;
         // Safe to operate as UTF-8 because the prelude/header region of an
@@ -171,7 +243,7 @@ class RelaySession {
     }
 }
 
-class RtspRelay {
+class RtspRelay implements SessionHost {
     get cameraHost(): string {
         return this.opts.cameraHost;
     }
@@ -190,7 +262,24 @@ class RtspRelay {
 
     private readonly sessions = new Set<RelaySession>();
 
+    private upstreamBackoffUntilMs = 0;
+
     constructor(private readonly opts: RtspRelayOptions) {}
+
+    isUpstreamInBackoff(): boolean {
+        return Date.now() < this.upstreamBackoffUntilMs;
+    }
+
+    reportUpstreamConnected(): void {
+        // Camera is back; clear any pending backoff so the next client
+        // attempt goes through immediately.
+        this.upstreamBackoffUntilMs = 0;
+    }
+
+    reportUpstreamFailure(err: Error): void {
+        this.upstreamBackoffUntilMs = Date.now() + UPSTREAM_BACKOFF_MS;
+        this.opts.logger.warn(`[relay] camera unreachable (${err.message}); pausing upstream attempts for ${UPSTREAM_BACKOFF_MS}ms`);
+    }
 
     async start(): Promise<void> {
         if (this.server) return;
@@ -217,7 +306,7 @@ class RtspRelay {
     }
 
     private handleClient(client: net.Socket): void {
-        const session = new RelaySession(client, this.opts);
+        const session = new RelaySession(client, this.opts, this);
         this.sessions.add(session);
         session.onClose = () => this.sessions.delete(session);
     }

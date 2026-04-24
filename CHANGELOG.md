@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.0] - 2026-04-23
+## [1.1.0] - 2026-04-24
 
 ### Added
 
@@ -42,6 +42,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at stream start, which would otherwise produce near-zero timestamp
   deltas between consecutive packets that each carry a full frame of
   content. The codec name is learned from the SDP's `a=rtpmap` lines.
+
+  Upstream connection errors (e.g. `ECONNREFUSED` because the camera's
+  RTSP daemon is down or rebooting) now translate into a clean
+  `RTSP/1.0 503 Service Unavailable` response back to the client
+  instead of a bare TCP close — so Scrypted's Rebroadcast logs the
+  real reason instead of the cryptic `Invalid data found when
+  processing input`. Client requests that arrive before the upstream
+  TCP handshake completes are queued and flushed once the camera
+  answers, or responded to with the 503 if the handshake fails.
+
+  After an upstream failure the relay enters a **5-second backoff**:
+  any new client session that arrives during the window is refused
+  immediately with the same 503, without us re-hitting the camera.
+  Works in tandem with Rebroadcast's own auto-retry so a camera that
+  crashed / rebooted has breathing room to come back without being
+  hammered by reconnect attempts.
 
 ### Changed
 
