@@ -47,10 +47,12 @@
     },
     "dependencies": {
         "@scrypted/sdk": "latest",
-        "bonjour-service": "^1.4.4"
+        "bonjour-service": "^1.4.4",
+        "multicast-dns": "7.2.5"
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",
+        "@types/multicast-dns": "^7.2.4",
         "@types/node": "^25.6.0",
         "eslint": "^10.2.1",
         "eslint-config-prettier": "^10.1.8",

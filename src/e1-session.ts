@@ -16,6 +16,13 @@ interface E1SessionOptions {
     onDiscovered?: (address: E1Address) => void;
 }
 
+// All E1 extensions in this plugin share motor ownership, including aliases
+// configured by IP on one video device and DID on another.
+const E1_OWNERS = new Map<string, E1Session>();
+
+const encodePtzCommand = (action: E1Action, controllerIp: string): Buffer =>
+    encodeE1Message({ params: { action }, cmd: 'camera.ctrl_ptz' }, controllerIp);
+
 /**
  * One operation owns its UDP socket, preventing late ACKs from older jogs matching
  * newer requests. New input cancels discovery/ACK waits and stops the old jog
@@ -24,6 +31,7 @@ interface E1SessionOptions {
 class E1Session {
     private active?: { abort: AbortController; promise: Promise<void> };
     private generation = 0;
+    private ownedKeys = new Set<string>();
     private released = false;
 
     constructor(private readonly options: E1SessionOptions) {}
@@ -31,7 +39,11 @@ class E1Session {
     async cancel(): Promise<void> {
         ++this.generation;
         this.active?.abort.abort();
-        await this.active?.promise;
+        try {
+            await this.active?.promise;
+        } finally {
+            this.releaseOwnership();
+        }
     }
 
     async command(jog: E1Jog): Promise<void> {
@@ -52,6 +64,22 @@ class E1Session {
     async release(): Promise<void> {
         this.released = true;
         await this.cancel();
+    }
+
+    private claimCamera(address: E1Address, target: E1Target): void {
+        const keys = new Set([`ip:${address.host}`]);
+        if (address.did) keys.add(`did:${address.did}`);
+        if (target.did) keys.add(`did:${target.did}`);
+        for (const key of keys) {
+            const owner = E1_OWNERS.get(key);
+            if (owner && owner !== this)
+                throw new Error(
+                    'This E1 is already controlled by another camera extension. Disable the other extension before controlling it here.'
+                );
+        }
+        this.releaseOwnership();
+        for (const key of keys) E1_OWNERS.set(key, this);
+        this.ownedKeys = keys;
     }
 
     private closeSocket(socket: Socket): void {
@@ -115,16 +143,24 @@ class E1Session {
             socket.once('error', onError);
             signal?.addEventListener('abort', onAbort, { once: true });
             if (signal?.aborted) return onAbort();
-            socket.send(encodeE1Message({ params: { action }, cmd: 'camera.ctrl_ptz' }, controllerIp), error => {
+            socket.send(encodePtzCommand(action, controllerIp), error => {
                 if (error) finish(error);
             });
         });
+    }
+
+    private releaseOwnership(): void {
+        for (const key of this.ownedKeys) {
+            if (E1_OWNERS.get(key) === this) E1_OWNERS.delete(key);
+        }
+        this.ownedKeys.clear();
     }
 
     private async run(jog: E1Jog, signal: AbortSignal): Promise<void> {
         const target = this.options.getTarget();
         const address = await (this.options.discover ?? discoverE1)(target, signal);
         signal.throwIfAborted();
+        this.claimCamera(address, target);
         this.options.onDiscovered?.(address);
         const socket = createSocket('udp4');
         // Keep errors handled even between individual ACK listeners.
@@ -146,7 +182,7 @@ class E1Session {
             signal.throwIfAborted();
             controllerIp = target.controllerIp || socket.address().address;
             // Validate the source address before arming any motor command.
-            encodeE1Message({ cmd: 'camera.ctrl_ptz', params: { action: 'stop' } }, controllerIp);
+            encodePtzCommand('stop', controllerIp);
             if (jog.action === 'stop') return;
             const deadline = Date.now() + jog.duration;
             watchdog = setTimeout(stop, jog.duration);
@@ -172,7 +208,7 @@ class E1Session {
 
     private sendStop(socket: Socket, controllerIp: string): void {
         try {
-            socket.send(encodeE1Message({ cmd: 'camera.ctrl_ptz', params: { action: 'stop' } }, controllerIp), error => {
+            socket.send(encodePtzCommand('stop', controllerIp), error => {
                 if (error) this.options.logger.warn(`E1 stop send failed: ${error.message}`);
             });
         } catch (error) {

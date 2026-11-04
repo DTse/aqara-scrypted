@@ -7,7 +7,7 @@ import { encodeE1Message, decodeE1Message } from './e1-protocol';
 
 import type { E1Action } from './e1-protocol';
 
-const createCamera = async (shouldAcknowledge: (action: string) => boolean = () => true) => {
+const createCamera = async (shouldAcknowledge: (action: string) => boolean = () => true, did = '') => {
     const socket = createSocket('udp4');
     const received: { time: number; action: string }[] = [];
     await new Promise<void>((resolve, reject) => {
@@ -26,13 +26,13 @@ const createCamera = async (shouldAcknowledge: (action: string) => boolean = () 
     });
     const session = new E1Session({
         logger: { warn: () => undefined },
-        getTarget: () => ({ did: '', host: '127.0.0.1', port: socket.address().port })
+        getTarget: () => ({ did, host: '127.0.0.1', port: socket.address().port })
     });
     onTestFinished(async () => {
         await session.release().catch(() => undefined);
         socket.close();
     });
-    return { session, received };
+    return { session, received, target: { did, host: '127.0.0.1', port: socket.address().port } };
 };
 
 const waitForAction = async (received: { action: string }[], action: string) => {
@@ -116,4 +116,45 @@ test('E1Session: next operation rediscovers after a discovery failure', async ()
     await expect(session.command({ duration: 250, action: 'right' })).rejects.toThrow(/Discovery unavailable/);
     expect(attempts).toBe(2);
     await session.release();
+});
+
+test('E1Session: rejects another controller for the same physical camera before sending a jog', async () => {
+    const { target, session, received } = await createCamera();
+    const other = new E1Session({ getTarget: () => target, logger: { warn: () => undefined } });
+    onTestFinished(() => other.release());
+    await session.command({ duration: 250, action: 'left' });
+    await expect(other.command({ duration: 250, action: 'right' })).rejects.toThrow(/already controlled/);
+    expect(received.some(message => message.action === 'right')).toBe(false);
+    await session.release();
+    await other.command({ duration: 250, action: 'right' });
+    await delay(10);
+    expect(received.some(message => message.action === 'right')).toBe(true);
+});
+
+test('E1Session: DID ownership rejects a duplicate at a different address without interrupting the active jog', async () => {
+    const { target, session, received } = await createCamera(() => true, 'lumi1.testcamera');
+    const other = new E1Session({
+        getTarget: () => target,
+        logger: { warn: () => undefined },
+        discover: async () => ({ ...target, host: '127.0.0.2' })
+    });
+    onTestFinished(() => other.release());
+    const moving = session.command({ action: 'left', duration: 1000 });
+    await waitForAction(received, 'left');
+    await expect(other.command({ duration: 250, action: 'right' })).rejects.toThrow(/already controlled/);
+    await other.release();
+    await moving;
+    expect(received.find(message => message.action === 'stop')!.time - received[0].time).toBeGreaterThanOrEqual(900);
+});
+
+test('E1Session: settings cancellation relinquishes ownership after active stops are drained', async () => {
+    const { target, session, received } = await createCamera();
+    const other = new E1Session({ getTarget: () => target, logger: { warn: () => undefined } });
+    onTestFinished(() => other.release());
+    const moving = session.command({ action: 'left', duration: 1000 });
+    await waitForAction(received, 'left');
+    const cancelled = session.cancel();
+    await expect(other.command({ duration: 250, action: 'right' })).rejects.toThrow(/already controlled/);
+    await Promise.all([moving, cancelled]);
+    await other.command({ duration: 250, action: 'right' });
 });

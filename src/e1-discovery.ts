@@ -1,5 +1,6 @@
 import { isIPv4 } from 'node:net';
 import Bonjour from 'bonjour-service';
+import createMdns from 'multicast-dns';
 
 interface E1Address {
     host: string;
@@ -33,20 +34,25 @@ const matchE1Service = (service: E1Service, target: E1Target): E1Address | undef
 };
 
 /** Discover _aqara-setup._tcp, whose advertised port actually accepts camera UDP. */
-const discoverE1 = async (target: E1Target, signal: AbortSignal): Promise<E1Address> => {
+const discoverE1 = async (target: E1Target, signal: AbortSignal, makeMdns: typeof createMdns = createMdns): Promise<E1Address> => {
     signal.throwIfAborted();
     if (target.port) return { host: target.host, port: target.port, did: target.did || undefined };
     return new Promise((resolve, reject) => {
         let finished = false;
-        let bonjour: Bonjour | undefined;
-        let browser: ReturnType<Bonjour['find']> | undefined;
+        let mdns: ReturnType<typeof createMdns> | undefined;
+        let browser: Bonjour.Browser | undefined;
         const finish = (error?: Error, address?: E1Address) => {
             if (finished) return;
             finished = true;
             clearTimeout(timer);
             signal.removeEventListener('abort', onAbort);
-            browser?.stop();
-            bonjour?.destroy();
+            try {
+                browser?.stop();
+                mdns?.destroy();
+            } catch (cause) {
+                // multicast-dns closes an unbound socket after a failed bind.
+                if ((cause as NodeJS.ErrnoException).code !== 'ERR_SOCKET_DGRAM_NOT_RUNNING') error ??= cause as Error;
+            }
             if (error) reject(error);
             else if (address) resolve(address);
         };
@@ -57,8 +63,11 @@ const discoverE1 = async (target: E1Target, signal: AbortSignal): Promise<E1Addr
         );
         signal.addEventListener('abort', onAbort, { once: true });
         try {
-            bonjour = new Bonjour(undefined, (error: Error) => finish(error));
-            browser = bonjour.find({ protocol: 'tcp', type: 'aqara-setup' }, service => {
+            mdns = makeMdns({ type: 'udp4' });
+            // Bonjour's constructor callback covers DNS responses, not socket
+            // errors. Own the transport and install its error listener directly.
+            mdns.on('error', error => finish(error));
+            browser = new Bonjour.Browser(mdns, { protocol: 'tcp', type: 'aqara-setup' }, service => {
                 const address = matchE1Service(service, target);
                 if (address) finish(undefined, address);
             });

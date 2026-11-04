@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Documented E1 setup, deployment boundaries and acceptance tests, and the transient discovery/control sockets and module layout in contributor conventions.
 
+### Fixed
+
+- Prevented separate E1 camera extensions from interrupting the same physical motor. Control is reserved by both camera DID and IPv4 until reconfiguration or release, after active stops finish.
+- Handled mDNS socket bind errors through the discovery request instead of allowing uncaught transport exceptions. Regression tests cover real port collisions, discovery transport cleanup, duplicate controllers and ownership transfer.
+
 ## [1.0.8] - 2026-04-24
 
 ### Added
