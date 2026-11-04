@@ -41,10 +41,12 @@ const discoverE1 = async (target: E1Target, signal: AbortSignal, makeMdns: typeo
         let finished = false;
         let mdns: ReturnType<typeof createMdns> | undefined;
         let browser: Bonjour.Browser | undefined;
+        let retryTimer: ReturnType<typeof setInterval> | undefined;
         const finish = (error?: Error, address?: E1Address) => {
             if (finished) return;
             finished = true;
             clearTimeout(timer);
+            if (retryTimer) clearInterval(retryTimer);
             signal.removeEventListener('abort', onAbort);
             try {
                 browser?.stop();
@@ -71,6 +73,8 @@ const discoverE1 = async (target: E1Target, signal: AbortSignal, makeMdns: typeo
                 const address = matchE1Service(service, target);
                 if (address) finish(undefined, address);
             });
+            // A missed multicast reply must not fail the entire operation.
+            if (!finished) retryTimer = setInterval(() => browser?.update(), 1000);
         } catch (error) {
             finish(error as Error);
         }

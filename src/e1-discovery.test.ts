@@ -79,3 +79,32 @@ test('discoverE1: public Bonjour browser resolves the camera and closes its tran
     await closed;
     expect(mdns.listenerCount('response')).toBe(0);
 });
+
+test('discoverE1: retries a lost query and closes its transport after the reply', async () => {
+    const socket = createSocket('udp4');
+    await new Promise<void>((resolve, reject) => {
+        socket.once('error', reject);
+        socket.bind(0, '127.0.0.1', resolve);
+    });
+    const closed = once(socket, 'close');
+    const mdns = createMdns({ socket, bind: false, ip: '127.0.0.1', multicast: false, port: socket.address().port });
+    onTestFinished(() => mdns.destroy());
+    let queries = 0;
+    const name = 'Camera-E1._aqara-setup._tcp.local';
+    mdns.on('query', () => {
+        if (++queries < 2) return;
+        mdns.respond({
+            answers: [{ ttl: 120, data: name, type: 'PTR', name: '_aqara-setup._tcp.local' }],
+            additionals: [
+                { name, ttl: 120, type: 'SRV', data: { weight: 0, port: 39694, priority: 0, target: 'Camera-E1.local' } },
+                { name, ttl: 120, type: 'TXT', data: [Buffer.from(`id=${SERVICE.txt.id}`)] },
+                { ttl: 120, type: 'A', data: '127.0.0.1', name: 'Camera-E1.local' }
+            ]
+        });
+    });
+    const result = await discoverE1({ did: '', host: '127.0.0.1' }, new AbortController().signal, () => mdns);
+    expect(result).toEqual({ port: 39694, host: '127.0.0.1', did: SERVICE.txt.id });
+    expect(queries).toBeGreaterThanOrEqual(2);
+    await closed;
+    expect(mdns.listenerCount('response')).toBe(0);
+});
