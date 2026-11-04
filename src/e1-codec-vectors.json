@@ -1,0 +1,22 @@
+[
+  {
+    "controllerIp": "192.168.8.214",
+    "keyHex": "cd1605e928ff0929b1232647cc251c88",
+    "inner": {
+      "cmd": "camera.rtsp_url",
+      "dpi": "__offline_read_probe__"
+    },
+    "value": "F7L2yhe2exOkm88R1gwXjarsY1J30H2KWXIV4RsLQCdwvJxWIu6Jm2qSNPNzjjyLU9eDOP+SfE+kZ2sLbc1FKw=="
+  },
+  {
+    "controllerIp": "192.0.2.10",
+    "keyHex": "6994e558bd76fb8d95aa1e669e777f97",
+    "inner": {
+      "cmd": "camera.ctrl_ptz",
+      "params": {
+        "action": "stop"
+      }
+    },
+    "value": "TIIpffOOPzK/k6Mekflz6/iHJfRqKbL0eb3NdLY8Gi7zAUU8Khph3lHR4fefCkLFk02ebdGrB0fFU2VxD7LTIA=="
+  }
+]

@@ -20,6 +20,7 @@ This plugin is LAN-local by default, but it exposes an HTTP webhook endpoint and
 - **Assume the camera is on a trusted LAN.** We don't authenticate the RTSP server (Aqara's auth is username/password; we consume it). We don't authenticate the webhook caller beyond the per-camera token.
 - **Scrypted's endpoint manager** handles auth for non-`/public/` paths. Our webhook is deliberately `/public/` — the token is the credential. Don't move it to a private path thinking it adds security; it just breaks the use case (external Matter controllers can't reach private paths).
 - **Don't open new listeners.** The plugin should not bind additional TCP/UDP ports beyond what Scrypted provides (for webhooks) and what we use transiently during Intercom sessions (UDP 54323 for RTP out).
+  E1 PTZ also uses transient mDNS browsing and a connected ephemeral IPv4 UDP socket per operation. Discovery is bounded and closed on completion/cancellation; no camera-control server is exposed. Its source-IP-derived encryption is not secret-based authentication.
 
 ## Dependency hygiene
 

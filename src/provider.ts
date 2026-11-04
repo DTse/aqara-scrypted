@@ -13,6 +13,9 @@ import sdk, {
 } from '@scrypted/sdk';
 
 import { AqaraCamera } from './camera';
+import { E1PtzMixin } from './e1-mixin';
+
+import type { MixinProvider, ScryptedDevice, WritableDeviceState } from '@scrypted/sdk';
 
 const { deviceManager } = sdk;
 
@@ -30,12 +33,17 @@ const AQARA_CAMERA_INTERFACES = [
     ScryptedInterface.HttpRequestHandler
 ] as const;
 
-class AqaraProvider extends ScryptedDeviceBase implements DeviceCreator, DeviceProvider, Settings {
+class AqaraProvider extends ScryptedDeviceBase implements DeviceCreator, DeviceProvider, MixinProvider, Settings {
     private readonly cameras = new Map<string, AqaraCamera>();
 
     constructor(nativeId?: string) {
         super(nativeId);
         void this.resyncDevices();
+    }
+
+    async canMixin(_type: string, interfaces: string[]): Promise<string[] | undefined> {
+        if (!interfaces.includes(ScryptedInterface.VideoCamera) || interfaces.includes(ScryptedInterface.PanTiltZoom)) return;
+        return [ScryptedInterface.PanTiltZoom, ScryptedInterface.Settings];
     }
 
     async createDevice(settings: DeviceCreatorSettings): Promise<string> {
@@ -116,13 +124,21 @@ class AqaraProvider extends ScryptedDeviceBase implements DeviceCreator, DeviceP
         return camera;
     }
 
+    async getMixin(
+        mixinDevice: ScryptedDevice & Settings,
+        mixinDeviceInterfaces: ScryptedInterface[],
+        mixinDeviceState: WritableDeviceState
+    ): Promise<E1PtzMixin> {
+        return new E1PtzMixin({ mixinDevice, mixinDeviceState, mixinDeviceInterfaces, mixinProviderNativeId: this.nativeId });
+    }
+
     async getSettings(): Promise<Setting[]> {
         return [
             {
                 key: 'info',
                 title: 'About',
                 readonly: true,
-                value: "Add an Aqara camera below. Enable 'RTSP LAN Preview' in the Aqara Home app for each camera and note the generated username and password."
+                value: "For G410/RTSP LAN Preview cameras, add a device below using the Aqara-generated RTSP credentials. For Camera E1, add video through your existing source (e.g. go2rtc), then enable Aqara Plugin in that camera's Extensions for local PTZ."
             }
         ];
     }
@@ -137,6 +153,10 @@ class AqaraProvider extends ScryptedDeviceBase implements DeviceCreator, DeviceP
             camera?.release();
             this.cameras.delete(nativeId);
         }
+    }
+
+    async releaseMixin(_id: string, mixinDevice: E1PtzMixin): Promise<void> {
+        await mixinDevice.release();
     }
 
     /**
