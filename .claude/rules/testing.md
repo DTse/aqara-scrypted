@@ -42,6 +42,7 @@
 
 - **100% of pure codec / helper code.** The round-trip (build → parse) test is mandatory for every packet type.
 - **All rejection cases for validators.** If `parsePacket` can return `null`, each reason why (short buffer, bad magic, unknown type, truncated payload, bad CRC) needs its own test.
+- **E1 UDP lifecycle tests** use real sockets bound to loopback with a simulated camera, never a real camera address. They verify watchdog stop without a movement ACK, cancellation and repeated stop before replacement movement, and release. They require permission to bind localhost UDP sockets.
 - **Edge cases in regex-based parsers.** For `parseRingEndpoint` and similar, test: happy path, trailing slash, query string, embedded in longer path, invalid chars, empty/undefined, too-short, too-long.
 
 ## Running

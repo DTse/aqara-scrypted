@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-11-04
+
+### Added
+
+- Optional Camera E1 local pan/tilt extension for an existing Scrypted video camera, including go2rtc-backed streams. Includes camera DID binding, direct mDNS discovery, manual control-port and controller-IPv4 overrides, and bounded relative jogs with repeated stop on deadlines, cancellation, errors and release. Existing G410 camera behavior is preserved.
+- Independent Python codec vectors and loopback UDP tests for lost acknowledgements, immediate stop, rapid input and release. E1 video acquisition, continuous movement, speed, presets and zoom are not included.
+
+### Changed
+
+- Documented E1 setup, deployment boundaries and acceptance tests, and the transient discovery/control sockets and module layout in contributor conventions.
+- Recorded live transport checks after camera power cycling and a successful deployed Scrypted extension test: stop and bounded right/left/up/down calls were acknowledged, and the owner observed movement with WAN access still blocked. Automatic port discovery remained enabled and Frigate continued receiving video. Long-duration offline stability and remaining hardware acceptance tests are still open.
+- Verified Scrypted's own video output as H.264 at 1920×1080, then reloaded the Aqara plugin and repeated runtime PTZ/stop checks with persisted settings and automatic discovery. Frigate continued at about 5 fps throughout the final checks.
+
+### Fixed
+
+- Retried E1 discovery queries within the existing four-second deadline so a lost multicast reply does not prevent local control. Retry timers are cleared on completion, cancellation and errors; directional commands remain single-send.
+- Prevented separate E1 camera extensions from interrupting the same physical motor. Control is reserved by both camera DID and IPv4 until reconfiguration or release, after active stops finish.
+- Handled mDNS socket bind errors through the discovery request instead of allowing uncaught transport exceptions. Regression tests cover real port collisions, discovery transport cleanup, duplicate controllers and ownership transfer.
+
 ## [1.0.8] - 2026-04-24
 
 ### Added

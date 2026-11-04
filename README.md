@@ -2,6 +2,8 @@
 
 A [Scrypted](https://scrypted.app) plugin for Aqara cameras that expose **RTSP LAN Preview** (tested against the Aqara G410). Based on https://github.com/Darkdragon14/ha-aqara-devices and https://github.com/absent42/aqara-doorbell
 
+Also provides optional **Camera E1 local pan/tilt** for a camera whose video is already supplied to Scrypted, for example through go2rtc. E1 does not need the G410 RTSP LAN Preview feature.
+
 ## Status
 
 | Feature | Status |
@@ -12,6 +14,25 @@ A [Scrypted](https://scrypted.app) plugin for Aqara cameras that expose **RTSP L
 | Intercom volume control | ✅ |
 | Doorbell press events | ✅ via webhook (see [Doorbell ring events](#doorbell-ring-events) below) |
 | Motion events | Use Scrypted Object Detector (see [Motion detection](#motion-detection) below) |
+| Camera E1 pan/tilt | Optional extension; bounded local jogs (see below) |
+
+## Camera E1 local pan/tilt
+
+For **Camera E1 / CH-C01E / `lumi.camera.acn006`**. On 2026-11-04, the locally built plugin was deployed into Scrypted and enabled on a go2rtc-backed RTSP camera. Calls through the camera's Scrypted `ptzCommand` interface successfully acknowledged stop and bounded right/left/up/down jogs, and the owner observed movement and confirmed the camera's WAN block remained enabled. Scrypted's video output probed as H.264 at 1920×1080 while Frigate continued at about 5 fps. Reloading only the Aqara plugin retained its camera IP/DID, blank manual-port override and PTZ capabilities; the same runtime commands passed again afterward. This was a plugin reload, not a full Scrypted/container restart. The transport also rediscovered the changed control port after a camera power cycle. Automated codec, loopback UDP lifecycle and discovery-loss tests pass. Long-duration offline stability, mechanical limits, mounting orientation and the remaining acceptance tests below are still open; the camera temporarily became unreachable during testing and later recovered.
+
+1. Add your E1 video to Scrypted using its existing video source. For go2rtc, use Scrypted's RTSP Camera plugin with your go2rtc RTSP URL. Keep its existing HomeKit pairing in go2rtc.
+2. On that camera's **Extensions** page, enable **Aqara Plugin**. This extension is offered to video cameras without an existing PTZ interface; enable it only on the E1. Do not add the E1 through this plugin's G410 **Add Device** flow.
+3. In **Aqara E1 Local PTZ** settings, enter the **camera's IPv4**. Leave **Manual control port** empty to discover `_aqara-setup._tcp` directly. Its advertised port accepts **UDP**, despite the service name.
+4. The discovered DID is saved so subsequent commands can follow DHCP address changes. You can also enter the DID directly. The plugin reserves control by both DID and IPv4 and rejects commands from another extension targeting the same physical camera. Disable or reconfigure the owning extension to transfer control; its active stops finish before ownership is released.
+5. Use the camera's PTZ controls for short pan/tilt jogs. **Stop motor** sends repeated stop commands, including when no jog is active.
+
+The default jog is **300 ms**, bounded to **250–1000 ms**. Signed relative pan/tilt selects a direction; magnitude is not a calibrated angle. Both axes zero or a zero timeout stops movement. Diagonal movement, continuous/absolute modes, zoom, presets, home and speed settings are rejected. New input cancels the previous operation and drains its stops before starting another. A watchdog sends stop at the jog deadline and repeats it 250 ms later, even if the movement acknowledgement is lost. Release and settings changes stop any active operation. UDP delivery and physical movement cannot be guaranteed by an acknowledgement.
+
+Use **host networking** for Scrypted where possible. With source NAT, set **Controller IPv4 override** to the source address the camera sees, usually the host's LAN IPv4. The protocol derives its AES key from that address; a container's internal address produces the wrong key. Multicast must reach Scrypted for automatic discovery. Without multicast, enter both the camera IPv4 and current control port manually; the port can change on reboot. Discovery runs afresh for each operation, and directional commands are never automatically retried. Discovery socket errors (including a failed mDNS port bind) are returned to the caller and cleaned up.
+
+This adds PTZ only. Video, audio, pairing, motion events and intercom remain with the video source. No Aqara cloud credentials, rotation scenes, firmware changes or ONVIF server are required. The predictable encryption is not secret-based authentication; keep the camera control service on your trusted LAN.
+
+Before relying on E1 support, verify camera reboot and plugin restart with WAN blocked, all four directions, mechanical limits and mounting orientation, stop under repeated input and packet loss, the actual container source address, and video while moving. Keep the tested short jogs; long-term behavior and other firmware/models remain unverified.
 
 ## Prerequisites
 
@@ -157,7 +178,7 @@ The Aqara LAN protocol does **not** expose motion events to third parties. Best 
 
 Only needed if you're contributing a code change or running an unreleased version. Regular users should use the **Install** section above.
 
-Requires [pnpm](https://pnpm.io) and Node.js 22+.
+Requires [pnpm](https://pnpm.io) 10+ and Node.js 24+.
 
 ```bash
 pnpm install
@@ -166,5 +187,7 @@ pnpm run scrypted-deploy <your-scrypted-host>
 ```
 
 Other useful scripts: `pnpm test` (vitest), `pnpm run lint`, `pnpm run typecheck`, `pnpm run dev` (rebuild on change).
+
+E1 transport tests use a loopback UDP camera simulator and send no commands to real cameras. The development build produces `out/plugin.zip`; `NODE_ENV=production pnpm run build` produces `dist/plugin.zip` for distribution. The E1 extension must be deployed from this checkout until a version containing it is published.
 
 Issues and pull requests welcome on the [GitHub repo](https://github.com/DTse/aqara-scrypted).

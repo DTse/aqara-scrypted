@@ -1,7 +1,7 @@
 {
     "name": "aqara-scrypted",
     "version": "1.0.8",
-    "description": "Scrypted plugin for Aqara cameras (G410 and compatible models) via local RTSP",
+    "description": "Scrypted plugin for Aqara G410 local RTSP and Camera E1 local pan/tilt",
     "scripts": {
         "test": "vitest run",
         "test:watch": "vitest",
@@ -41,14 +41,18 @@
         "interfaces": [
             "DeviceProvider",
             "DeviceCreator",
-            "Settings"
+            "Settings",
+            "MixinProvider"
         ]
     },
     "dependencies": {
-        "@scrypted/sdk": "latest"
+        "@scrypted/sdk": "latest",
+        "bonjour-service": "^1.4.4",
+        "multicast-dns": "7.2.5"
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",
+        "@types/multicast-dns": "^7.2.4",
         "@types/node": "^25.6.0",
         "eslint": "^10.2.1",
         "eslint-config-prettier": "^10.1.8",

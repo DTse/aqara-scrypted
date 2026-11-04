@@ -14,6 +14,13 @@ src/
 └── helpers.test.ts
 ```
 
+E1 support is isolated in `e1-mixin.ts` (optional PTZ and merged camera settings),
+`e1-session.ts` (cancelable UDP lifecycle), `e1-discovery.ts` (mDNS and identity
+matching), and `e1-protocol.ts` (codec and command mapping). Tests are co-located;
+`e1-codec-vectors.json` contains independent Python reference vectors. The E1
+extension reuses an existing camera's video instead of the G410 stream/intercom
+implementation.
+
 ## Principles
 
 - **Flat `src/` layout.** No nested subdirectories until file count demands it (~15+ files). Prefer filename disambiguation.
